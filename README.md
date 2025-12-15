@@ -1,1 +1,1 @@
-# MultiExchangeTradingBot
+# Multi-Exchange Trading Bot

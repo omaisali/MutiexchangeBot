@@ -240,3 +240,6 @@ A SELL signal is generated when ALL of the following conditions are met:
 - `webhook_payload_examples.json` - Example payloads for BUY and SELL signals
 - `tradingview_indicators.pine` - Pine Script with webhook alert integration
 
+
+
+

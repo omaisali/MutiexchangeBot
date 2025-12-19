@@ -34,9 +34,11 @@ show_bb_labels = input.bool(true, title="Show BB Buy/Sell Labels")
 rsi_length = input.int(12, title="RSI Length", minval=1)
 rsi_source = input.source(close, title="RSI Source")
 
-// RSI Buy/Sell Thresholds
-rsi_buy_threshold = input.float(54.0, title="RSI Buy Threshold (>=)", minval=0, maxval=100, step=0.1)
-rsi_sell_threshold = input.float(43.0, title="RSI Sell Threshold (<=)", minval=0, maxval=100, step=0.1)
+// RSI Buy/Sell Thresholds (Ranges)
+rsi_buy_threshold_min = input.float(54.0, title="RSI Buy Threshold Min (>=)", minval=0, maxval=100, step=0.1)
+rsi_buy_threshold_max = input.float(82.0, title="RSI Buy Threshold Max (<=)", minval=0, maxval=100, step=0.1)
+rsi_sell_threshold_min = input.float(27.0, title="RSI Sell Threshold Min (>=)", minval=0, maxval=100, step=0.1)
+rsi_sell_threshold_max = input.float(43.0, title="RSI Sell Threshold Max (<=)", minval=0, maxval=100, step=0.1)
 show_rsi_signals = input.bool(true, title="Show RSI Buy/Sell Signals")
 
 // Display Options
@@ -122,14 +124,14 @@ rsi_oversold = 30
 rsi_overbought_signal = ta.crossover(rsi, rsi_overbought)
 rsi_oversold_signal = ta.crossunder(rsi, rsi_oversold)
 
-// RSI Buy/Sell Signals based on Custom Thresholds (Closed Candle Only)
-// Buy Signal: RSI >= 54 (crosses above or equals threshold)
-rsi_buy_signal = barstate.isconfirmed and (ta.crossover(rsi, rsi_buy_threshold) or (rsi >= rsi_buy_threshold and rsi[1] < rsi_buy_threshold))
-rsi_buy_active = rsi >= rsi_buy_threshold  // RSI is at or above buy threshold
+// RSI Buy/Sell Signals based on Custom Threshold Ranges (Closed Candle Only)
+// Buy Signal: RSI within range 54-82 (enters or is within buy range)
+rsi_buy_signal = barstate.isconfirmed and (rsi >= rsi_buy_threshold_min and rsi <= rsi_buy_threshold_max) and not (rsi[1] >= rsi_buy_threshold_min and rsi[1] <= rsi_buy_threshold_max)
+rsi_buy_active = rsi >= rsi_buy_threshold_min and rsi <= rsi_buy_threshold_max  // RSI is within buy range
 
-// Sell Signal: RSI <= 43 (crosses below or equals threshold)
-rsi_sell_signal = barstate.isconfirmed and (ta.crossunder(rsi, rsi_sell_threshold) or (rsi <= rsi_sell_threshold and rsi[1] > rsi_sell_threshold))
-rsi_sell_active = rsi <= rsi_sell_threshold  // RSI is at or below sell threshold
+// Sell Signal: RSI within range 27-43 (enters or is within sell range)
+rsi_sell_signal = barstate.isconfirmed and (rsi >= rsi_sell_threshold_min and rsi <= rsi_sell_threshold_max) and not (rsi[1] >= rsi_sell_threshold_min and rsi[1] <= rsi_sell_threshold_max)
+rsi_sell_active = rsi >= rsi_sell_threshold_min and rsi <= rsi_sell_threshold_max  // RSI is within sell range
 
 // ============================================================================
 // COMBINED STRATEGY LOGIC - WT + Ideal BB + RSI (Closed Candle + Next Candle Entry)
@@ -166,8 +168,8 @@ bb_buy_condition = close > ma_value  // Price above MA (evaluated on closed cand
 bb_sell_condition = close < ma_value  // Price below MA (evaluated on closed candle)
 
 // RSI Conditions for Buy/Sell (within WT window) - using closed candle values only
-rsi_buy_condition = rsi >= rsi_buy_threshold  // RSI >= 54 (evaluated on closed candle)
-rsi_sell_condition = rsi <= rsi_sell_threshold  // RSI <= 43 (evaluated on closed candle)
+rsi_buy_condition = rsi >= rsi_buy_threshold_min and rsi <= rsi_buy_threshold_max  // RSI within 54-82 range (evaluated on closed candle)
+rsi_sell_condition = rsi >= rsi_sell_threshold_min and rsi <= rsi_sell_threshold_max  // RSI within 27-43 range (evaluated on closed candle)
 
 // Combined Strategy Signals (detected on closed candle)
 // BUY: WT buy window active AND BB buy condition AND RSI buy condition
@@ -231,16 +233,16 @@ plotshape(show_wt and show_wt_dots and wt_cross_down ? wt1 : na,
      text="")
 
 // Ideal Bollinger Bands Plot
-plot(show_bb ? ideal_bb_upper : na, title="Ideal BB Upper", color=color.new(color.blue, 0), linewidth=1)
-plot(show_bb ? ideal_bb_basis : na, title="Ideal BB Basis", color=color.new(color.yellow, 0), linewidth=1, linestyle=plot.style_line)
-plot(show_bb ? ideal_bb_lower : na, title="Ideal BB Lower", color=color.new(color.blue, 0), linewidth=1)
+bb_upper_plot = plot(show_bb ? ideal_bb_upper : na, title="Ideal BB Upper", color=color.new(color.blue, 0), linewidth=1)
+bb_basis_plot = plot(show_bb ? ideal_bb_basis : na, title="Ideal BB Basis", color=color.new(color.yellow, 0), linewidth=1, style=plot.style_line)
+bb_lower_plot = plot(show_bb ? ideal_bb_lower : na, title="Ideal BB Lower", color=color.new(color.blue, 0), linewidth=1)
 
 // Moving Average Plot (for reference)
-plot(show_bb ? ma_value : na, title="MA", color=color.new(color.purple, 0), linewidth=1, linestyle=plot.style_dashed)
+plot(show_bb ? ma_value : na, title="MA", color=color.new(color.purple, 0), linewidth=1, style=plot.style_linebr)
 
 // BB Fill
 fill_color = bb_source > ideal_bb_upper ? color.new(color.red, 90) : bb_source < ideal_bb_lower ? color.new(color.green, 90) : color.new(color.gray, 95)
-fill(show_bb ? plot(ideal_bb_upper, display=display.none) : na, show_bb ? plot(ideal_bb_lower, display=display.none) : na, color=fill_color, title="BB Fill")
+fill(bb_upper_plot, bb_lower_plot, color=fill_color, title="BB Fill")
 
 // Ideal BB with MA Buy/Sell Labels
 // Note: For labels on price chart, create separate overlay script using bb_buy_signal and bb_sell_signal variables
@@ -272,9 +274,11 @@ hline(show_rsi ? rsi_overbought : na, "RSI Overbought", color=color.new(color.re
 hline(show_rsi ? rsi_oversold : na, "RSI Oversold", color=color.new(color.green, 50), linestyle=hline.style_dashed)
 hline(show_rsi ? 50 : na, "RSI Midline", color=color.new(color.gray, 70), linestyle=hline.style_dotted)
 
-// RSI Buy/Sell Threshold Levels
-hline(show_rsi ? rsi_buy_threshold : na, "RSI Buy Threshold", color=color.new(color.green, 30), linestyle=hline.style_solid, linewidth=2)
-hline(show_rsi ? rsi_sell_threshold : na, "RSI Sell Threshold", color=color.new(color.red, 30), linestyle=hline.style_solid, linewidth=2)
+// RSI Buy/Sell Threshold Levels (Ranges)
+hline(show_rsi ? rsi_buy_threshold_min : na, "RSI Buy Threshold Min", color=color.new(color.green, 30), linestyle=hline.style_solid, linewidth=2)
+hline(show_rsi ? rsi_buy_threshold_max : na, "RSI Buy Threshold Max", color=color.new(color.green, 30), linestyle=hline.style_solid, linewidth=2)
+hline(show_rsi ? rsi_sell_threshold_min : na, "RSI Sell Threshold Min", color=color.new(color.red, 30), linestyle=hline.style_solid, linewidth=2)
+hline(show_rsi ? rsi_sell_threshold_max : na, "RSI Sell Threshold Max", color=color.new(color.red, 30), linestyle=hline.style_solid, linewidth=2)
 
 // RSI Buy/Sell Signal Labels
 plotshape(show_rsi and show_rsi_signals and rsi_buy_signal ? rsi : na, 
@@ -332,8 +336,8 @@ alertcondition(rsi_overbought_signal, title="RSI Overbought", message="RSI Enter
 alertcondition(rsi_oversold_signal, title="RSI Oversold", message="RSI Entered Oversold Zone")
 
 // RSI Buy/Sell Threshold Alerts
-alertcondition(rsi_buy_signal, title="RSI Buy Signal", message="RSI Buy Signal: RSI crossed above " + str.tostring(rsi_buy_threshold))
-alertcondition(rsi_sell_signal, title="RSI Sell Signal", message="RSI Sell Signal: RSI crossed below " + str.tostring(rsi_sell_threshold))
+alertcondition(rsi_buy_signal, title="RSI Buy Signal", message="RSI Buy Signal: RSI entered buy range")
+alertcondition(rsi_sell_signal, title="RSI Sell Signal", message="RSI Sell Signal: RSI entered sell range")
 
 // Ideal BB with MA Alerts
 alertcondition(bb_buy_signal, title="BB Buy Signal", message="Ideal BB Buy Signal: Price crossed above MA")
@@ -378,8 +382,10 @@ build_json_payload(signal_type) =>
     json_str := json_str + "},"
     json_str := json_str + "\"rsi\":{"
     json_str := json_str + "\"value\":" + str.tostring(rsi, "#.##") + ","
-    json_str := json_str + "\"buy_threshold\":" + str.tostring(rsi_buy_threshold) + ","
-    json_str := json_str + "\"sell_threshold\":" + str.tostring(rsi_sell_threshold) + ","
+    json_str := json_str + "\"buy_threshold_min\":" + str.tostring(rsi_buy_threshold_min) + ","
+    json_str := json_str + "\"buy_threshold_max\":" + str.tostring(rsi_buy_threshold_max) + ","
+    json_str := json_str + "\"sell_threshold_min\":" + str.tostring(rsi_sell_threshold_min) + ","
+    json_str := json_str + "\"sell_threshold_max\":" + str.tostring(rsi_sell_threshold_max) + ","
     json_str := json_str + "\"condition_met\":" + str.tostring(rsi_condition_met)
     json_str := json_str + "}"
     json_str := json_str + "},"
@@ -404,29 +410,33 @@ build_webhook_message(signal_type) =>
     bb_flag_str = str.tostring(bb_buy_condition)
     rsi_condition_str = str.tostring(signal_type == "BUY" ? rsi_buy_condition : rsi_sell_condition)
     
-    "SYMBOL=" + syminfo.ticker + "|" +
-    "TIME=" + timestamp_str + "|" +
-    "SIGNAL=" + signal_type + "|" +
-    "WT_FLAG=" + wt_flag_str + "|" +
-    "WT1=" + str.tostring(wt1, "#.##") + "|" +
-    "WT2=" + str.tostring(wt2, "#.##") + "|" +
-    "WT_CROSS=" + wt_cross_type + "|" +
-    "WT_WINDOW=" + wt_window_status + "|" +
-    "BB_FLAG=" + bb_flag_str + "|" +
-    "BB_UPPER=" + str.tostring(ideal_bb_upper, "#.##") + "|" +
-    "BB_LOWER=" + str.tostring(ideal_bb_lower, "#.##") + "|" +
-    "BB_BASIS=" + str.tostring(ideal_bb_basis, "#.##") + "|" +
-    "MA_VALUE=" + str.tostring(ma_value, "#.##") + "|" +
-    "BB_PERCENT=" + str.tostring(bb_percent, "#.####") + "|" +
-    "RSI_VALUE=" + str.tostring(rsi, "#.##") + "|" +
-    "RSI_BUY_THRESHOLD=" + str.tostring(rsi_buy_threshold) + "|" +
-    "RSI_SELL_THRESHOLD=" + str.tostring(rsi_sell_threshold) + "|" +
-    "RSI_CONDITION=" + rsi_condition_str + "|" +
-    "PRICE_CLOSE=" + str.tostring(close, "#.##") + "|" +
-    "PRICE_OPEN=" + str.tostring(open, "#.##") + "|" +
-    "PRICE_HIGH=" + str.tostring(high, "#.##") + "|" +
-    "PRICE_LOW=" + str.tostring(low, "#.##") + "|" +
-    "ENTRY_TYPE=NEXT_CANDLE_OPEN"
+    // Build message incrementally (Pine Script doesn't support line continuation)
+    msg = "SYMBOL=" + syminfo.ticker + "|"
+    msg := msg + "TIME=" + timestamp_str + "|"
+    msg := msg + "SIGNAL=" + signal_type + "|"
+    msg := msg + "WT_FLAG=" + wt_flag_str + "|"
+    msg := msg + "WT1=" + str.tostring(wt1, "#.##") + "|"
+    msg := msg + "WT2=" + str.tostring(wt2, "#.##") + "|"
+    msg := msg + "WT_CROSS=" + wt_cross_type + "|"
+    msg := msg + "WT_WINDOW=" + wt_window_status + "|"
+    msg := msg + "BB_FLAG=" + bb_flag_str + "|"
+    msg := msg + "BB_UPPER=" + str.tostring(ideal_bb_upper, "#.##") + "|"
+    msg := msg + "BB_LOWER=" + str.tostring(ideal_bb_lower, "#.##") + "|"
+    msg := msg + "BB_BASIS=" + str.tostring(ideal_bb_basis, "#.##") + "|"
+    msg := msg + "MA_VALUE=" + str.tostring(ma_value, "#.##") + "|"
+    msg := msg + "BB_PERCENT=" + str.tostring(bb_percent, "#.####") + "|"
+    msg := msg + "RSI_VALUE=" + str.tostring(rsi, "#.##") + "|"
+    msg := msg + "RSI_BUY_THRESHOLD_MIN=" + str.tostring(rsi_buy_threshold_min) + "|"
+    msg := msg + "RSI_BUY_THRESHOLD_MAX=" + str.tostring(rsi_buy_threshold_max) + "|"
+    msg := msg + "RSI_SELL_THRESHOLD_MIN=" + str.tostring(rsi_sell_threshold_min) + "|"
+    msg := msg + "RSI_SELL_THRESHOLD_MAX=" + str.tostring(rsi_sell_threshold_max) + "|"
+    msg := msg + "RSI_CONDITION=" + rsi_condition_str + "|"
+    msg := msg + "PRICE_CLOSE=" + str.tostring(close, "#.##") + "|"
+    msg := msg + "PRICE_OPEN=" + str.tostring(open, "#.##") + "|"
+    msg := msg + "PRICE_HIGH=" + str.tostring(high, "#.##") + "|"
+    msg := msg + "PRICE_LOW=" + str.tostring(low, "#.##") + "|"
+    msg := msg + "ENTRY_TYPE=NEXT_CANDLE_OPEN"
+    msg
 
 // ============================================================================
 // ALERT CONDITIONS - JSON OUTPUT (All Three Indicators Must Align)
@@ -452,22 +462,24 @@ all_indicators_aligned_sell = enable_strategy and
 // 2. All three indicators are still fully aligned on current bar
 // 3. Signal hasn't been triggered already (prevents duplicates)
 // Entry occurs on NEXT candle open (after conditions met on previous closed candle)
+// Note: alertcondition requires const strings, so we use static messages
+// The actual JSON payload is built in the alert message template using {{message}} variable
 alertcondition(strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy, 
      title="Strategy Buy Signal (JSON)", 
-     message=build_json_payload("BUY"))
+     message="BUY")
 
 alertcondition(strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell, 
      title="Strategy Sell Signal (JSON)", 
-     message=build_json_payload("SELL"))
+     message="SELL")
 
 // Alternative: Pipe-delimited format alerts (for backward compatibility)
 alertcondition(strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy, 
      title="Strategy Buy Signal (Webhook)", 
-     message=build_webhook_message("BUY"))
+     message="BUY")
 
 alertcondition(strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell, 
      title="Strategy Sell Signal (Webhook)", 
-     message=build_webhook_message("SELL"))
+     message="SELL")
 
 // ============================================================================
 // TABLE DISPLAY (Optional - shows current values)
@@ -483,8 +495,8 @@ if barstate.islast
     table.cell(info_table, 1, 1, str.tostring(wt1, "#.##"), text_color=wt1 >= wt2 ? color.green : color.red)
     
     table.cell(info_table, 0, 2, "RSI(12)", text_color=color.black)
-    rsi_color = rsi >= rsi_buy_threshold ? color.green : rsi <= rsi_sell_threshold ? color.red : rsi > rsi_overbought ? color.red : rsi < rsi_oversold ? color.green : color.blue
-    table.cell(info_table, 1, 2, str.tostring(rsi, "#.##"), text_color=rsi_color)
+    rsi_table_color = (rsi >= rsi_buy_threshold_min and rsi <= rsi_buy_threshold_max) ? color.green : (rsi >= rsi_sell_threshold_min and rsi <= rsi_sell_threshold_max) ? color.red : rsi > rsi_overbought ? color.red : rsi < rsi_oversold ? color.green : color.blue
+    table.cell(info_table, 1, 2, str.tostring(rsi, "#.##"), text_color=rsi_table_color)
     
     table.cell(info_table, 0, 3, "%B", text_color=color.black)
     table.cell(info_table, 1, 3, str.tostring(bb_percent * 100, "#.##") + "%", text_color=color.black)

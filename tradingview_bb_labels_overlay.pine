@@ -79,3 +79,6 @@ if show_sell_labels and bb_sell_signal
 alertcondition(bb_buy_signal, title="BB Buy Signal", message="Ideal BB Buy Signal: Price crossed above MA")
 alertcondition(bb_sell_signal, title="BB Sell Signal", message="Ideal BB Sell Signal: Price crossed below MA")
 
+
+
+

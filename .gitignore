@@ -1,0 +1,19 @@
+# Client requirements (contains sensitive information)
+CLIENT_REQUIREMENTS.md
+
+# Environment variables and secrets
+.env
+*.key
+*.secret
+config.json
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+

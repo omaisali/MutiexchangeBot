@@ -1,11 +1,16 @@
-# Client requirements (contains sensitive information)
+# Client requirements and deployment documentation (contains sensitive information)
 CLIENT_REQUIREMENTS.md
+DEPLOYMENT_REQUIREMENTS.md
+DEPLOYMENT_QUICK_START.md
+README_DASHBOARD.md
+README_TRADING_BOT.md
 
 # Environment variables and secrets
 .env
 *.key
 *.secret
 config.json
+dashboard_config.json
 
 # IDE files
 .vscode/
@@ -16,4 +21,5 @@ config.json
 # OS files
 .DS_Store
 Thumbs.db
+
 

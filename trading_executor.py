@@ -1,0 +1,390 @@
+"""
+Trading Executor
+Handles order execution, position management, and risk management
+"""
+
+import logging
+import threading
+import time
+from typing import Dict, Optional
+from mexc_client import MEXCClient
+from position_manager import PositionManager
+from tp_sl_manager import TPSLManager
+from stop_loss_monitor import StopLossMonitor
+
+logger = logging.getLogger(__name__)
+
+
+class TradingExecutor:
+    """Handles trading execution with risk management"""
+    
+    def __init__(self, mexc_client: MEXCClient, config: Dict):
+        """
+        Initialize Trading Executor
+        
+        Args:
+            mexc_client: MEXC API client instance
+            config: Configuration dictionary
+        """
+        self.client = mexc_client
+        self.config = config
+        # Ensure position size is between 20-100%
+        position_size = float(config.get('POSITION_SIZE_PERCENT', 20.0))
+        self.position_size_percent = max(20.0, min(100.0, position_size))  # Clamp between 20-100%
+        self.position_size_fixed = config.get('POSITION_SIZE_FIXED')
+        self.use_percentage = config.get('USE_PERCENTAGE', 'true').lower() == 'true'
+        
+        # Initialize position and TP/SL managers
+        self.position_manager = PositionManager(mexc_client)
+        stop_loss_percent = float(config.get('STOP_LOSS_PERCENT', 5.0))
+        self.tp_sl_manager = TPSLManager(mexc_client, self.position_manager, stop_loss_percent)
+        
+        # Initialize stop-loss monitor (for Spot trading - MEXC Spot doesn't support stop-loss orders)
+        self.stop_loss_monitor = StopLossMonitor(mexc_client, self.position_manager)
+        self.stop_loss_monitor.start_monitoring()
+        
+        # Store reference in tp_sl_manager for price updates
+        self.tp_sl_manager.stop_loss_monitor = self.stop_loss_monitor
+        
+        # Start monitoring thread for TP/SL management
+        self.monitoring_active = True
+        self.monitor_thread = threading.Thread(target=self._monitor_positions, daemon=True)
+        self.monitor_thread.start()
+        logger.info("Position monitoring thread started")
+        logger.warning("⚠️  MEXC Spot API doesn't support stop-loss orders. Using price monitoring system.")
+        
+    def calculate_position_size(self, symbol: str, signal_price: float) -> float:
+        """
+        Calculate position size based on configuration
+        
+        Args:
+            symbol: Trading pair symbol
+            signal_price: Current price of the asset
+            
+        Returns:
+            Position size in quote currency (e.g., USDT)
+        """
+        if self.use_percentage:
+            # Get account balance
+            try:
+                account = self.client.get_account_info()
+                balances = account.get('balances', [])
+                
+                # Find USDT balance (or quote currency)
+                quote_currency = symbol.replace('USDT', '').replace('BTC', '').replace('ETH', '')[-4:] or 'USDT'
+                if not quote_currency.endswith('USDT') and 'USDT' in symbol:
+                    quote_currency = 'USDT'
+                
+                usdt_balance = 0.0
+                for balance in balances:
+                    if balance['asset'] == quote_currency:
+                        usdt_balance = float(balance.get('free', 0))
+                        break
+                
+                # Calculate position size as percentage
+                position_size = usdt_balance * (self.position_size_percent / 100.0)
+                logger.info(f"Position size: {position_size} {quote_currency} ({self.position_size_percent}% of {usdt_balance})")
+                return position_size
+                
+            except Exception as e:
+                logger.error(f"Error calculating position size: {e}")
+                # Fallback to fixed size if available
+                if self.position_size_fixed:
+                    return float(self.position_size_fixed)
+                return 0.0
+        else:
+            # Use fixed position size
+            if self.position_size_fixed:
+                return float(self.position_size_fixed)
+            return 0.0
+    
+    def check_existing_positions(self, symbol: str) -> bool:
+        """
+        Check if there are existing open positions for a symbol
+        
+        Args:
+            symbol: Trading pair symbol
+            
+        Returns:
+            True if positions exist, False otherwise
+        """
+        try:
+            open_orders = self.client.get_open_orders(symbol)
+            if open_orders and len(open_orders) > 0:
+                logger.warning(f"Existing open orders found for {symbol}: {len(open_orders)} orders")
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"Could not check existing positions: {e}")
+            return False
+    
+    def execute_buy(self, symbol: str, signal_data: Dict) -> Optional[Dict]:
+        """
+        Execute a BUY order with TP/SL management
+        
+        Args:
+            symbol: Trading pair symbol
+            signal_data: Signal data from TradingView
+            
+        Returns:
+            Order response or None if failed
+        """
+        try:
+            # Check for existing positions if warning is enabled
+            warn_existing = self.config.get('warn_existing_positions', True)
+            if warn_existing:
+                has_positions = self.check_existing_positions(symbol)
+                if has_positions:
+                    logger.warning(f"⚠️  EXISTING POSITIONS DETECTED for {symbol}. Proceeding with new order.")
+            
+            # Get current price (this will be our entry price)
+            entry_price = self.client.get_ticker_price(symbol)
+            logger.info(f"Current {symbol} price: {entry_price}")
+            
+            # Calculate position size
+            position_size_usdt = self.calculate_position_size(symbol, entry_price)
+            
+            if position_size_usdt <= 0:
+                logger.error("Invalid position size calculated")
+                return None
+            
+            # Place market buy order
+            logger.info(f"Executing BUY order: {symbol}, Size: {position_size_usdt} USDT")
+            order_response = self.client.place_market_buy(symbol, position_size_usdt)
+            
+            if not order_response or 'orderId' not in order_response:
+                logger.error(f"Failed to place BUY order: {order_response}")
+                return None
+            
+            order_id = str(order_response['orderId'])
+            logger.info(f"BUY order placed successfully: {order_id}")
+            
+            # Wait a moment for order to fill, then get filled quantity
+            time.sleep(1)
+            filled_order = self.client.get_order_status(symbol, order_id)
+            
+            if filled_order.get('status') != 'FILLED':
+                logger.warning(f"Order {order_id} not yet filled, status: {filled_order.get('status')}")
+                # Try to get executed quantity
+                executed_qty = float(filled_order.get('executedQty', 0))
+            else:
+                executed_qty = float(filled_order.get('executedQty', 0))
+            
+            if executed_qty <= 0:
+                logger.error("No quantity executed")
+                return order_response
+            
+            # Calculate actual entry price from filled order
+            if 'price' in filled_order and filled_order['price']:
+                entry_price = float(filled_order['price'])
+            elif 'cummulativeQuoteQty' in filled_order and executed_qty > 0:
+                entry_price = float(filled_order['cummulativeQuoteQty']) / executed_qty
+            
+            # Create position record
+            position = self.position_manager.create_position(
+                symbol=symbol,
+                entry_price=entry_price,
+                side='BUY',
+                quantity=executed_qty,
+                order_id=order_id
+            )
+            
+            # Place initial stop-loss (5% from entry)
+            sl_order_id = self.tp_sl_manager.place_initial_stop_loss(
+                symbol=symbol,
+                entry_price=entry_price,
+                side='BUY',
+                quantity=executed_qty
+            )
+            
+            if sl_order_id:
+                position['stop_loss_order_id'] = sl_order_id
+                logger.info(f"Initial stop-loss placed: {sl_order_id}")
+            else:
+                logger.error("⚠️  WARNING: Failed to place initial stop-loss")
+            
+            # Place all take-profit orders (TP1-TP5)
+            tp_orders = self.tp_sl_manager.place_take_profit_orders(
+                symbol=symbol,
+                entry_price=entry_price,
+                side='BUY',
+                initial_quantity=executed_qty
+            )
+            
+            logger.info(f"Take-profit orders placed: {len(tp_orders)} orders")
+            
+            return {
+                'entry_order': order_response,
+                'position': position,
+                'stop_loss_order_id': sl_order_id,
+                'tp_orders': tp_orders
+            }
+            
+        except Exception as e:
+            logger.error(f"Error executing BUY order: {e}", exc_info=True)
+            return None
+    
+    def execute_sell(self, symbol: str, signal_data: Dict) -> Optional[Dict]:
+        """
+        Execute a SELL order
+        
+        Args:
+            symbol: Trading pair symbol
+            signal_data: Signal data from TradingView
+            
+        Returns:
+            Order response or None if failed
+        """
+        try:
+            # Get account balance for base currency
+            base_currency = symbol.replace('USDT', '').replace('BTC', '').replace('ETH', '')
+            if 'USDT' in symbol:
+                base_currency = symbol.split('USDT')[0]
+            
+            balance = self.client.get_balance(base_currency)
+            available_quantity = float(balance.get('free', 0))
+            
+            if available_quantity <= 0:
+                logger.warning(f"No {base_currency} available to sell")
+                return None
+            
+            # Use percentage of available balance if configured
+            if self.use_percentage:
+                sell_quantity = available_quantity * (self.position_size_percent / 100.0)
+            else:
+                sell_quantity = available_quantity  # Sell all available
+            
+            # Ensure we don't sell more than available
+            sell_quantity = min(sell_quantity, available_quantity)
+            
+            logger.info(f"Executing SELL order: {symbol}, Quantity: {sell_quantity} {base_currency}")
+            order_response = self.client.place_market_sell(symbol, sell_quantity)
+            
+            logger.info(f"SELL order placed successfully: {order_response}")
+            return order_response
+            
+        except Exception as e:
+            logger.error(f"Error executing SELL order: {e}")
+            return None
+    
+    def validate_signal(self, signal_data: Dict) -> bool:
+        """
+        Validate trading signal before execution
+        
+        Args:
+            signal_data: Signal data from TradingView
+            
+        Returns:
+            True if signal is valid, False otherwise
+        """
+        # Check required fields
+        required_fields = ['symbol', 'signal', 'indicators', 'price']
+        for field in required_fields:
+            if field not in signal_data:
+                logger.error(f"Missing required field: {field}")
+                return False
+        
+        # Validate signal type
+        signal = signal_data.get('signal', '').upper()
+        if signal not in ['BUY', 'SELL']:
+            logger.error(f"Invalid signal type: {signal}")
+            return False
+        
+        # Validate indicators alignment
+        indicators = signal_data.get('indicators', {})
+        strategy = signal_data.get('strategy', {})
+        
+        if not strategy.get('all_conditions_met', False):
+            logger.warning("Not all indicator conditions are met")
+            return False
+        
+        # TradingView already determines the symbol from the indicator configuration
+        # No need to filter by trading pairs - accept any symbol from TradingView
+        
+        return True
+    
+    def _monitor_positions(self):
+        """Background thread to monitor positions and handle TP/SL"""
+        while self.monitoring_active:
+            try:
+                positions = self.position_manager.get_all_positions()
+                
+                for symbol, position in positions.items():
+                    # Check if TP1 has been hit and move stop-loss to entry (CRITICAL)
+                    if not position['tp_hit']['tp1']:
+                        try:
+                            self.tp_sl_manager.check_and_handle_tp1(symbol)
+                        except Exception as e:
+                            logger.error(f"CRITICAL ERROR in TP1 handling for {symbol}: {e}")
+                            # This is critical - if we can't move SL to entry, we have a problem
+                    
+                    # Check other TP levels
+                    self._check_tp_levels(symbol)
+                
+                time.sleep(5)  # Check every 5 seconds
+                
+            except Exception as e:
+                logger.error(f"Error in position monitoring: {e}")
+                time.sleep(10)
+    
+    def _check_tp_levels(self, symbol: str):
+        """Check if TP levels have been hit"""
+        position = self.position_manager.get_position(symbol)
+        if not position:
+            return
+        
+        for tp_level in ['tp2', 'tp3', 'tp4', 'tp5']:
+            if position['tp_hit'][tp_level]:
+                continue
+            
+            tp_order_id = position['tp_orders'].get(tp_level)
+            if not tp_order_id:
+                continue
+            
+            try:
+                order_status = self.client.get_order_status(symbol, tp_order_id)
+                
+                if order_status.get('status') == 'FILLED':
+                    logger.info(f"✅ {tp_level.upper()} FILLED for {symbol}")
+                    self.position_manager.mark_tp_hit(symbol, tp_level)
+                    
+                    # Update remaining quantity
+                    close_qty = self.tp_sl_manager.calculate_close_quantity(
+                        position['initial_quantity'],
+                        tp_level,
+                        position['remaining_quantity']
+                    )
+                    self.position_manager.update_position_quantity(symbol, close_qty)
+                    
+            except Exception as e:
+                logger.error(f"Error checking {tp_level}: {e}")
+    
+    def execute_signal(self, signal_data: Dict) -> Optional[Dict]:
+        """
+        Execute trading signal
+        
+        Args:
+            signal_data: Signal data from TradingView webhook
+            
+        Returns:
+            Order response or None if failed
+        """
+        # Validate signal
+        if not self.validate_signal(signal_data):
+            logger.error("Signal validation failed")
+            return None
+        
+        symbol = signal_data.get('symbol', '')
+        signal = signal_data.get('signal', '').upper()
+        
+        logger.info(f"Executing {signal} signal for {symbol}")
+        
+        # Execute based on signal type
+        if signal == 'BUY':
+            return self.execute_buy(symbol, signal_data)
+        elif signal == 'SELL':
+            return self.execute_sell(symbol, signal_data)
+        else:
+            logger.error(f"Unknown signal type: {signal}")
+            return None
+

@@ -111,9 +111,11 @@ class MEXCClient:
         params = params or {}
         
         if signed:
-            # Add timestamp (MEXC API v3 doesn't require recvWindow in signature)
+            # MEXC RULE: ALL query parameters must be included in signature, in sorted order
+            # Step 1: Add ALL parameters FIRST (timestamp AND recvWindow)
             timestamp = int(time.time() * 1000)
             params['timestamp'] = timestamp
+            params['recvWindow'] = 5000
             
             # Add sub-account ID if using sub-account
             if self.use_sub_account and self.sub_account_id:
@@ -125,13 +127,12 @@ class MEXCClient:
             logger.info(f"   Timestamp: {timestamp}")
             logger.info(f"   Params (before signature): {params}")
             
-            # Generate signature BEFORE adding it to params (signature should NOT include recvWindow)
-            # MEXC API v3 signature is based on timestamp only (and other params, but not recvWindow)
+            # Step 2: Generate signature from ALL params (including recvWindow)
+            # Signature must include ALL parameters that will be in the query string
             signature = self._generate_signature(params)
-            params['signature'] = signature
             
-            # Add recvWindow AFTER signature generation (it's sent but not signed)
-            params['recvWindow'] = 5000
+            # Step 3: Add signature to params
+            params['signature'] = signature
             
             logger.info(f"   Final params (with signature): {list(params.keys())}")
             

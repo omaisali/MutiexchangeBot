@@ -322,7 +322,13 @@ class Dashboard:
                                 exchange_status['connected'] = validation['connected']
                                 exchange_status['can_trade'] = validation['can_trade']
                                 if validation['connected']:
-                                    exchange_status['balances'] = client.get_main_balances()
+                                    # Always fetch and return balances (even if empty/zero)
+                                    balances = client.get_main_balances()
+                                    exchange_status['balances'] = balances  # Will be {} if all zero
+                                    logger.info(f"✅ {exchange_name} connected - Balances: {len(balances)} assets")
+                                else:
+                                    # Not connected, set balances to null (not empty object)
+                                    exchange_status['balances'] = None
                                 # Don't set error message - UI will just show "Not connected"
                             except Exception as e:
                                 logger.error(f"Error validating MEXC connection: {e}", exc_info=True)

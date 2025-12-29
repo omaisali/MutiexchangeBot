@@ -210,32 +210,44 @@ async function renderExchanges() {
         
         // Format balances - show all balances, not just > 0.01
         let balanceText = '';
-        if (status.balances && Object.keys(status.balances).length > 0) {
-            const balanceParts = [];
-            for (const [asset, bal] of Object.entries(status.balances)) {
-                // Show balance if total > 0 (or if it's a main trading asset)
-                const total = parseFloat(bal.total || 0);
-                if (total > 0) {
-                    // Format with appropriate decimal places
-                    let formatted;
-                    if (total >= 1) {
-                        formatted = total.toFixed(2);
-                    } else if (total >= 0.01) {
-                        formatted = total.toFixed(4);
-                    } else {
-                        formatted = total.toFixed(8);
+        if (status.connected) {
+            // Exchange is connected, check if balances were fetched
+            if (status.balances !== undefined && status.balances !== null) {
+                // Balances were fetched (even if empty)
+                if (Object.keys(status.balances).length > 0) {
+                    const balanceParts = [];
+                    for (const [asset, bal] of Object.entries(status.balances)) {
+                        // Show balance if total > 0
+                        const total = parseFloat(bal.total || 0);
+                        if (total > 0) {
+                            // Format with appropriate decimal places
+                            let formatted;
+                            if (total >= 1) {
+                                formatted = total.toFixed(2);
+                            } else if (total >= 0.01) {
+                                formatted = total.toFixed(4);
+                            } else {
+                                formatted = total.toFixed(8);
+                            }
+                            balanceParts.push(`${asset}: ${formatted}`);
+                        }
                     }
-                    balanceParts.push(`${asset}: ${formatted}`);
+                    if (balanceParts.length > 0) {
+                        balanceText = `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-weight: 500;">💰 ${balanceParts.join(' • ')}</div>`;
+                    } else {
+                        // Connected but all balances are zero
+                        balanceText = `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">💰 All balances: 0.00</div>`;
+                    }
+                } else {
+                    // Connected but balances object is empty (no assets with balance)
+                    balanceText = `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">💰 All balances: 0.00</div>`;
                 }
-            }
-            if (balanceParts.length > 0) {
-                balanceText = `<div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; font-weight: 500;">💰 ${balanceParts.join(' • ')}</div>`;
             } else {
-                balanceText = `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">No balances found</div>`;
+                // Connected but balances not fetched yet
+                balanceText = `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Loading balances...</div>`;
             }
-        } else if (status.connected) {
-            balanceText = `<div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Loading balances...</div>`;
         }
+        // If not connected, don't show balance text
         
         item.innerHTML = `
             <div class="exchange-item-left">

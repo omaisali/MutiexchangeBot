@@ -121,6 +121,14 @@ def create_exchange_clients(config: dict) -> dict:
         api_secret = exchange_config.get('api_secret', '').strip()
         base_url = exchange_config.get('base_url', '').strip()
         
+        # Log loaded keys (masked) for verification
+        if api_key:
+            masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
+            logging.info(f"📋 Loaded {exchange_name} API Key from config: {masked_key} (length: {len(api_key)})")
+        if api_secret:
+            masked_secret = f"{api_secret[:6]}...{api_secret[-4:]}" if len(api_secret) > 10 else "***"
+            logging.info(f"📋 Loaded {exchange_name} API Secret from config: {masked_secret} (length: {len(api_secret)})")
+        
         if not api_key or not api_secret:
             logging.warning(f"{exchange_name} is enabled but missing API credentials")
             continue

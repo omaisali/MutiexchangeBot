@@ -38,6 +38,14 @@ class MEXCClient:
         self.use_sub_account = use_sub_account
         self.session = requests.Session()
         
+        # Log loaded keys (masked) for verification
+        if self.api_key:
+            masked_key = f"{self.api_key[:6]}...{self.api_key[-4:]}" if len(self.api_key) > 10 else "***"
+            logger.info(f"🔑 Loaded MEXC API Key: {masked_key} (length: {len(self.api_key)})")
+        if self.api_secret:
+            masked_secret = f"{self.api_secret[:6]}...{self.api_secret[-4:]}" if len(self.api_secret) > 10 else "***"
+            logger.info(f"🔑 Loaded MEXC API Secret: {masked_secret} (length: {len(self.api_secret)})")
+        
     def _generate_signature(self, params: Dict) -> str:
         """
         Generate HMAC-SHA256 signature for authenticated requests

@@ -133,13 +133,27 @@ class Dashboard:
             
             if 'api_key' in data and data['api_key']:
                 # Trim whitespace to prevent signature errors
+                old_key = exchange.get('api_key', '')
                 exchange['api_key'] = data['api_key'].strip()
+                # Log saved key (masked) for verification
+                saved_key = exchange['api_key']
+                masked_key = f"{saved_key[:6]}...{saved_key[-4:]}" if len(saved_key) > 10 else "***"
+                logger.info(f"💾 Saved {exchange_name} API Key: {masked_key} (length: {len(saved_key)})")
+                if old_key and old_key != saved_key:
+                    logger.info(f"   Previous key: {old_key[:6]}...{old_key[-4:] if len(old_key) > 10 else '***'}")
             
             if 'api_secret' in data and data['api_secret']:
                 # Only update if not masked
                 if data['api_secret'] != '***':
                     # Trim whitespace to prevent signature errors
+                    old_secret = exchange.get('api_secret', '')
                     exchange['api_secret'] = data['api_secret'].strip()
+                    # Log saved secret (masked) for verification
+                    saved_secret = exchange['api_secret']
+                    masked_secret = f"{saved_secret[:6]}...{saved_secret[-4:]}" if len(saved_secret) > 10 else "***"
+                    logger.info(f"💾 Saved {exchange_name} API Secret: {masked_secret} (length: {len(saved_secret)})")
+                    if old_secret and old_secret != saved_secret:
+                        logger.info(f"   Previous secret: {old_secret[:6]}...{old_secret[-4:] if len(old_secret) > 10 else '***'}")
             
             if 'base_url' in data:
                 exchange['base_url'] = data['base_url']
@@ -328,6 +342,14 @@ class Dashboard:
                     # Trim whitespace to prevent signature errors
                     api_key = exchange['api_key'].strip()
                     api_secret = exchange['api_secret'].strip()
+                    
+                    # Log keys being used for testing (masked)
+                    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
+                    masked_secret = f"{api_secret[:6]}...{api_secret[-4:]}" if len(api_secret) > 10 else "***"
+                    logger.info(f"🧪 Testing {exchange_name} connection with:")
+                    logger.info(f"   API Key: {masked_key} (length: {len(api_key)})")
+                    logger.info(f"   API Secret: {masked_secret} (length: {len(api_secret)})")
+                    
                     client = MEXCClient(
                         api_key=api_key,
                         api_secret=api_secret,

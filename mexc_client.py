@@ -78,10 +78,14 @@ class MEXCClient:
             hashlib.sha256
         ).hexdigest()
         
-        # Always log signature details for troubleshooting
-        logger.debug(f"Signature params: {sorted_params}")
-        logger.debug(f"Query string: {query_string}")
-        logger.debug(f"Signature: {signature}")
+        # Always log signature details for troubleshooting (use INFO level so it always shows)
+        logger.info(f"🔐 Signature generation:")
+        logger.info(f"   Params: {sorted_params}")
+        logger.info(f"   Query string: {query_string}")
+        logger.info(f"   API Secret length: {len(self.api_secret)}")
+        logger.info(f"   API Secret (first 6): {self.api_secret[:6]}...")
+        logger.info(f"   API Secret (last 6): ...{self.api_secret[-6:]}")
+        logger.info(f"   Generated signature: {signature}")
         
         return signature
     

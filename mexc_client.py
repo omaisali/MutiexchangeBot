@@ -78,10 +78,10 @@ class MEXCClient:
             hashlib.sha256
         ).hexdigest()
         
-        if logger.level <= logging.DEBUG:
-            logger.debug(f"Signature params: {sorted_params}")
-            logger.debug(f"Query string: {query_string}")
-            logger.debug(f"Signature: {signature}")
+        # Always log signature details for troubleshooting
+        logger.debug(f"Signature params: {sorted_params}")
+        logger.debug(f"Query string: {query_string}")
+        logger.debug(f"Signature: {signature}")
         
         return signature
     
@@ -153,12 +153,21 @@ class MEXCClient:
                     logger.error(f"Error details: {error_detail}")
                     # Extract specific error message if available
                     if isinstance(error_detail, dict):
-                        if 'msg' in error_detail:
-                            error_msg = f"MEXC API Error: {error_detail['msg']}"
-                        elif 'message' in error_detail:
-                            error_msg = f"MEXC API Error: {error_detail['message']}"
-                        elif 'code' in error_detail:
-                            error_msg = f"MEXC API Error Code {error_detail['code']}: {error_detail}"
+                        error_code = error_detail.get('code', '')
+                        error_msg_text = error_detail.get('msg') or error_detail.get('message', '')
+                        
+                        # Provide specific guidance for common errors
+                        if error_code == 700006 or 'ip white list' in error_msg_text.lower() or 'ip whitelist' in error_msg_text.lower():
+                            error_msg = f"MEXC API Error (Code {error_code}): {error_msg_text}"
+                            logger.error("⚠️  IP Whitelist Issue: Your IP address is not in the whitelist.")
+                            logger.error("   Solution: Add your IP address in MEXC API Management → IP Whitelist")
+                        elif error_code == 700002 or 'signature' in error_msg_text.lower():
+                            error_msg = f"MEXC API Error (Code {error_code}): {error_msg_text}"
+                            logger.error("⚠️  Signature Error: Check API secret and parameter formatting")
+                        elif error_code:
+                            error_msg = f"MEXC API Error (Code {error_code}): {error_msg_text}"
+                        else:
+                            error_msg = f"MEXC API Error: {error_msg_text}" if error_msg_text else str(error_detail)
                 except:
                     error_text = e.response.text if hasattr(e.response, 'text') else str(e.response)
                     error_msg += f" - {error_text}"

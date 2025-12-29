@@ -204,6 +204,19 @@ def main():
     # Get trading settings from dashboard config
     trading_settings = dashboard_config.get('trading_settings', {})
     
+    # Check Railway IP for MEXC whitelist (if on Railway)
+    if os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('PORT'):
+        try:
+            from mexc_ip_manager import MEXCIPManager
+            ip_manager = MEXCIPManager()
+            current_ip = ip_manager.get_current_ip()
+            if current_ip:
+                logger.info(f"🌐 Railway IP detected: {current_ip}")
+                logger.warning("⚠️  If MEXC connection fails, add this IP to MEXC API whitelist")
+                logger.warning("⚠️  Note: Keys without IP whitelist expire in 90 days")
+        except Exception as e:
+            logger.debug(f"Could not check IP: {e}")
+    
     # Create exchange clients
     exchange_clients = create_exchange_clients(dashboard_config)
     

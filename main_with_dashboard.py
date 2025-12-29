@@ -237,28 +237,9 @@ def main():
         logger.info("⚠️  CRITICAL: Stop-loss will move to entry after TP1 (hard requirement)")
     
     # Initialize webhook handler (always initialize, even without executor for demo mode)
-    # Use PORT from environment (for Railway/Render) or config default
-    webhook_port = int(os.getenv('PORT', trading_settings.get('webhook_port', 5000)))
-    webhook_host = trading_settings.get('webhook_host', '0.0.0.0')
-    
-    # Initialize webhook handler (can work in demo mode without executor)
+    # Webhook routes will be integrated into dashboard Flask app (single server)
     webhook_handler = WebhookHandler(trading_executor, signal_monitor)
     logger.info("Webhook handler initialized")
-    
-    # Start webhook server in a separate thread
-    def run_webhook():
-        try:
-            webhook_handler.run(
-                host=webhook_host,
-                port=webhook_port,
-                debug=(log_level.upper() == 'DEBUG')
-            )
-        except Exception as e:
-            logger.error(f"Webhook server error: {e}")
-    
-    webhook_thread = threading.Thread(target=run_webhook, daemon=True)
-    webhook_thread.start()
-    logger.info(f"Webhook server started on {webhook_host}:{webhook_port}")
     
     # Check if demo mode should be enabled (opt-in via environment variable)
     enable_demo_mode = os.getenv('DEMO_MODE', 'false').lower() == 'true'
@@ -287,6 +268,10 @@ def main():
     # Set signal_monitor reference in dashboard for API endpoints
     dashboard.signal_monitor = signal_monitor
     
+    # Integrate webhook route into dashboard Flask app (single server, no port conflict)
+    # Register webhook handler's route in dashboard app
+    webhook_handler._register_routes_to_app(dashboard.app)
+    
     # Use PORT from environment (for Railway/Render) or config default
     # Dashboard and webhook run on same port (single Flask app)
     dashboard_port = int(os.getenv('PORT', os.getenv('DASHBOARD_PORT', 8080)))
@@ -295,6 +280,7 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Dashboard starting on {dashboard_host}:{dashboard_port}")
     logger.info(f"Access dashboard at: http://localhost:{dashboard_port}")
+    logger.info(f"Webhook endpoint: http://localhost:{dashboard_port}/webhook")
     logger.info("=" * 60)
     
     try:

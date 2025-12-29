@@ -30,91 +30,106 @@ class WebhookHandler:
         self.app = Flask(__name__)
         self._setup_routes()
     
+    def _register_routes_to_app(self, target_app):
+        """Register webhook routes to an existing Flask app (for integration)"""
+        # Copy webhook route to target app
+        @target_app.route('/webhook', methods=['POST'])
+        def webhook():
+            return self._handle_webhook()
+        
+        @target_app.route('/health', methods=['GET'])
+        def health():
+            """Health check endpoint"""
+            self.signal_monitor.ping_webhook()
+            from flask import jsonify
+            return jsonify({'status': 'healthy'}), 200
+    
+    def _handle_webhook(self):
+        """Handle webhook request (extracted for reuse)"""
+        from flask import request, jsonify
+        try:
+            # Mark webhook as connected
+            self.signal_monitor.ping_webhook()
+            
+            # Get request data
+            data = request.get_json()
+            
+            if not data:
+                # Try to parse as form data (TradingView sends form data)
+                data = request.form.to_dict()
+                if 'message' in data:
+                    # Parse pipe-delimited message
+                    data = self._parse_pipe_message(data)
+            
+            logger.info(f"Received webhook: {json.dumps(data, indent=2)}")
+            
+            # Validate and parse signal data
+            signal_data = self._parse_signal_data(data)
+            
+            if not signal_data:
+                error_msg = 'Invalid signal data'
+                self.signal_monitor.add_signal(data if data else {}, executed=False, error=error_msg)
+                return jsonify({'status': 'error', 'message': error_msg}), 400
+            
+            # Execute trading signal (or simulate in demo mode)
+            if self.executor:
+                order_response = self.executor.execute_signal(signal_data)
+                
+                if order_response:
+                    self.signal_monitor.add_signal(signal_data, executed=True)
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Order executed successfully',
+                        'order': order_response
+                    }), 200
+                else:
+                    error_msg = 'Failed to execute order'
+                    self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
+                    return jsonify({
+                        'status': 'error',
+                        'message': error_msg
+                    }), 500
+            else:
+                # Demo mode: simulate trade execution
+                from demo_mode import DemoMode
+                demo = DemoMode()
+                if demo.is_active():
+                    # Simulate trade execution
+                    price = float(signal_data.get('price', 0))
+                    symbol = signal_data.get('symbol', 'BTCUSDT')
+                    side = signal_data.get('signal', 'BUY')
+                    # Estimate quantity based on typical position size
+                    quantity = (1000 / price) if price > 0 else 0.01  # Simulate $1000 trade
+                    
+                    trade = demo.simulate_trade(symbol, side, price, quantity)
+                    logger.info(f"🎮 Demo trade simulated: {trade}")
+                    self.signal_monitor.add_signal(signal_data, executed=True)
+                    return jsonify({
+                        'status': 'success',
+                        'message': 'Demo trade executed successfully',
+                        'order': trade,
+                        'demo': True
+                    }), 200
+                
+                error_msg = 'No trading executor available'
+                self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
+                return jsonify({
+                    'status': 'error',
+                    'message': error_msg
+                }), 500
+                
+        except Exception as e:
+            logger.error(f"Webhook error: {e}", exc_info=True)
+            from flask import jsonify
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+    
     def _setup_routes(self):
         """Setup Flask routes"""
         
         @self.app.route('/webhook', methods=['POST'])
         def webhook():
             """Handle TradingView webhook POST requests"""
-            try:
-                # Mark webhook as connected
-                self.signal_monitor.ping_webhook()
-                
-                # Get request data
-                data = request.get_json()
-                
-                if not data:
-                    # Try to parse as form data (TradingView sends form data)
-                    data = request.form.to_dict()
-                    if 'message' in data:
-                        # Parse pipe-delimited message
-                        data = self._parse_pipe_message(data)
-                
-                logger.info(f"Received webhook: {json.dumps(data, indent=2)}")
-                
-                # Validate and parse signal data
-                signal_data = self._parse_signal_data(data)
-                
-                if not signal_data:
-                    error_msg = 'Invalid signal data'
-                    self.signal_monitor.add_signal(data if data else {}, executed=False, error=error_msg)
-                    return jsonify({'status': 'error', 'message': error_msg}), 400
-                
-                # Execute trading signal (or simulate in demo mode)
-                if self.executor:
-                    order_response = self.executor.execute_signal(signal_data)
-                    
-                    if order_response:
-                        self.signal_monitor.add_signal(signal_data, executed=True)
-                        return jsonify({
-                            'status': 'success',
-                            'message': 'Order executed successfully',
-                            'order': order_response
-                        }), 200
-                    else:
-                        error_msg = 'Failed to execute order'
-                        self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
-                        return jsonify({
-                            'status': 'error',
-                            'message': error_msg
-                        }), 500
-                else:
-                    # Demo mode: simulate trade execution
-                    from demo_mode import DemoMode
-                    demo = DemoMode()
-                    if demo.is_active():
-                        # Simulate trade execution
-                        price = float(signal_data.get('price', 0))
-                        symbol = signal_data.get('symbol', 'BTCUSDT')
-                        side = signal_data.get('signal', 'BUY')
-                        # Estimate quantity based on typical position size
-                        quantity = (1000 / price) if price > 0 else 0.01  # Simulate $1000 trade
-                        
-                        trade = demo.simulate_trade(symbol, side, price, quantity)
-                        logger.info(f"🎮 Demo trade simulated: {trade}")
-                        self.signal_monitor.add_signal(signal_data, executed=True)
-                        return jsonify({
-                            'status': 'success',
-                            'message': 'Demo trade executed successfully',
-                            'order': trade,
-                            'demo': True
-                        }), 200
-                    
-                    error_msg = 'No trading executor available'
-                    self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
-                    return jsonify({
-                        'status': 'error',
-                        'message': error_msg
-                    }), 500
-                    
-            except Exception as e:
-                logger.error(f"Webhook error: {e}", exc_info=True)
-                error_msg = str(e)
-                self.signal_monitor.add_signal(data if 'data' in locals() else {}, executed=False, error=error_msg)
-                return jsonify({
-                    'status': 'error',
-                    'message': error_msg
-                }), 500
+            return self._handle_webhook()
         
         @self.app.route('/health', methods=['GET'])
         def health():

@@ -3,6 +3,125 @@
 let config = {};
 
 // Initialize dashboard
+// Check and display demo mode
+async function checkDemoMode() {
+    try {
+        const response = await fetch('/api/status');
+        if (response.ok) {
+            const status = await response.json();
+            const demoBadge = document.getElementById('demoModeBadge');
+            const tradingSection = document.getElementById('tradingActivitySection');
+            
+            if (status.demo_mode) {
+                if (demoBadge) demoBadge.style.display = 'block';
+                if (tradingSection) tradingSection.style.display = 'block';
+                await loadDemoData();
+                // Refresh demo data every 10 seconds
+                setInterval(loadDemoData, 10000);
+            } else {
+                if (demoBadge) demoBadge.style.display = 'none';
+                if (tradingSection) tradingSection.style.display = 'none';
+            }
+        }
+    } catch (error) {
+        console.error('Error checking demo mode:', error);
+    }
+}
+
+// Load demo trading data
+async function loadDemoData() {
+    try {
+        // Load demo stats
+        const statsResponse = await fetch('/api/demo/stats');
+        if (statsResponse.ok) {
+            const statsData = await statsResponse.json();
+            const stats = statsData.stats || {};
+            
+            const statsContainer = document.getElementById('tradingStats');
+            if (statsContainer) {
+                statsContainer.innerHTML = `
+                    <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Total Trades</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">${stats.total_trades || 0}</div>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Total Volume</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">$${stats.total_volume || 0}</div>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Open Positions</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">${stats.open_positions || 0}</div>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; border: 1px solid var(--border);">
+                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Uptime</div>
+                        <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">${Math.floor((stats.uptime_seconds || 0) / 60)}m</div>
+                    </div>
+                `;
+            }
+        }
+        
+        // Load demo trades
+        const tradesResponse = await fetch('/api/demo/trades?limit=10');
+        if (tradesResponse.ok) {
+            const tradesData = await tradesResponse.json();
+            const trades = tradesData.trades || [];
+            
+            const tradesBody = document.getElementById('demoTradesTableBody');
+            if (tradesBody) {
+                if (trades.length === 0) {
+                    tradesBody.innerHTML = '<tr><td colspan="7" class="no-signals">No trades yet</td></tr>';
+                } else {
+                    tradesBody.innerHTML = trades.reverse().map(trade => {
+                        const date = new Date(trade.timestamp);
+                        const timeStr = date.toLocaleTimeString();
+                        return `
+                            <tr>
+                                <td>${timeStr}</td>
+                                <td>${trade.symbol}</td>
+                                <td><span class="signal-badge ${trade.side.toLowerCase()}">${trade.side}</span></td>
+                                <td>$${trade.price.toFixed(2)}</td>
+                                <td>${trade.quantity.toFixed(6)}</td>
+                                <td>$${trade.amount.toFixed(2)}</td>
+                                <td><span class="status-badge executed">${trade.status}</span></td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+        }
+        
+        // Load demo positions
+        const positionsResponse = await fetch('/api/demo/positions');
+        if (positionsResponse.ok) {
+            const positionsData = await positionsResponse.json();
+            const positions = positionsData.positions || [];
+            
+            const positionsBody = document.getElementById('demoPositionsTableBody');
+            if (positionsBody) {
+                if (positions.length === 0) {
+                    positionsBody.innerHTML = '<tr><td colspan="6" class="no-signals">No open positions</td></tr>';
+                } else {
+                    positionsBody.innerHTML = positions.map(pos => {
+                        const pnlColor = pos.unrealized_pnl >= 0 ? 'var(--success)' : 'var(--error)';
+                        return `
+                            <tr>
+                                <td>${pos.symbol}</td>
+                                <td><span class="signal-badge ${pos.side.toLowerCase()}">${pos.side}</span></td>
+                                <td>$${pos.entry_price.toFixed(2)}</td>
+                                <td>$${pos.current_price.toFixed(2)}</td>
+                                <td>${pos.quantity.toFixed(6)}</td>
+                                <td style="color: ${pnlColor}; font-weight: 600;">$${pos.unrealized_pnl.toFixed(2)}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading demo data:', error);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadDashboard();
     setInterval(updateStatus, 30000); // Update status every 30 seconds (includes exchange balances)
@@ -37,6 +156,9 @@ async function loadDashboard() {
         renderRiskManagement();
         updateStatusIndicator();
         
+        // Check for demo mode
+        checkDemoMode();
+        
         // Load initial signal status
         updateSignalStatus();
         updateRecentSignals();
@@ -65,7 +187,10 @@ async function renderExchanges() {
     
     list.innerHTML = '';
     
-    Object.entries(config.exchanges).forEach(([key, exchange]) => {
+    // Filter out Alpaca (removed from supported exchanges)
+    Object.entries(config.exchanges)
+        .filter(([key]) => key !== 'alpaca')
+        .forEach(([key, exchange]) => {
         const item = document.createElement('div');
         item.className = `exchange-item ${exchange.enabled ? 'enabled' : ''}`;
         
@@ -74,13 +199,12 @@ async function renderExchanges() {
             ? (exchange.paper_trading ? 'Paper' : 'Live') 
             : (exchange.name === 'MEXC' ? 'Live' : '');
         
-        // Connection status indicator
+        // Connection status indicator (only show if connected, hide errors)
         let connectionStatus = '';
         if (status.connected) {
             connectionStatus = '<span style="color: var(--success); font-size: 10px;">● Connected</span>';
-        } else if (status.error) {
-            connectionStatus = `<span style="color: var(--error); font-size: 10px;">● ${status.error}</span>`;
         } else {
+            // Don't show error messages, just show "Not connected" if not connected
             connectionStatus = '<span style="color: var(--text-muted); font-size: 10px;">● Not connected</span>';
         }
         

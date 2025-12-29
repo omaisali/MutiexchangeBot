@@ -41,22 +41,38 @@ class MEXCClient:
         """
         Generate HMAC-SHA256 signature for authenticated requests
         
+        MEXC API signature format:
+        1. Sort all parameters alphabetically by key (excluding signature itself)
+        2. Create query string: key1=value1&key2=value2
+        3. Generate HMAC-SHA256 with API secret
+        
         Args:
-            params: Request parameters dictionary
+            params: Request parameters dictionary (should NOT include signature)
             
         Returns:
             Signature string
         """
-        # Sort parameters and create query string
-        sorted_params = sorted(params.items())
-        query_string = urlencode(sorted_params)
+        # Remove signature if present (shouldn't be, but just in case)
+        params_copy = {k: v for k, v in params.items() if k != 'signature'}
         
-        # Generate signature
+        # Sort parameters alphabetically by key
+        sorted_params = sorted(params_copy.items())
+        
+        # Create query string: key1=value1&key2=value2
+        # Use doseq=False to handle lists correctly
+        query_string = urlencode(sorted_params, doseq=False)
+        
+        # Generate HMAC-SHA256 signature
         signature = hmac.new(
             self.api_secret.encode('utf-8'),
             query_string.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
+        
+        if logger.level <= logging.DEBUG:
+            logger.debug(f"Signature params: {sorted_params}")
+            logger.debug(f"Query string: {query_string}")
+            logger.debug(f"Signature: {signature}")
         
         return signature
     
@@ -78,7 +94,7 @@ class MEXCClient:
         params = params or {}
         
         if signed:
-            # Add timestamp and API key
+            # Add timestamp and recvWindow
             params['timestamp'] = int(time.time() * 1000)
             params['recvWindow'] = 5000
             
@@ -86,35 +102,67 @@ class MEXCClient:
             if self.use_sub_account and self.sub_account_id:
                 params['subAccountId'] = self.sub_account_id
             
-            # Generate signature
+            # Generate signature BEFORE adding it to params
             signature = self._generate_signature(params)
             params['signature'] = signature
             
-            # Add headers
+            # MEXC API uses X-MEXC-APIKEY header
+            # Note: Some MEXC API versions might use different header names
+            # Try both common variations
             headers = {
                 'X-MEXC-APIKEY': self.api_key,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             }
         else:
             headers = {'Content-Type': 'application/json'}
         
         try:
             if method.upper() == 'GET':
+                # For GET requests, params go in query string
                 response = self.session.get(url, params=params, headers=headers, timeout=10)
             elif method.upper() == 'POST':
+                # For POST requests, check if params should be in body or query
+                # MEXC typically uses JSON body for POST
                 response = self.session.post(url, json=params, headers=headers, timeout=10)
             elif method.upper() == 'DELETE':
-                response = self.session.delete(url, json=params, headers=headers, timeout=10)
+                # For DELETE, MEXC might use query params or JSON body
+                response = self.session.delete(url, params=params, headers=headers, timeout=10)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
             
             response.raise_for_status()
             return response.json()
             
+        except requests.exceptions.HTTPError as e:
+            # Get more detailed error information
+            error_msg = f"MEXC API request failed: {e}"
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                    error_msg += f" - {error_detail}"
+                    logger.error(f"Error details: {error_detail}")
+                    # Extract specific error message if available
+                    if isinstance(error_detail, dict):
+                        if 'msg' in error_detail:
+                            error_msg = f"MEXC API Error: {error_detail['msg']}"
+                        elif 'message' in error_detail:
+                            error_msg = f"MEXC API Error: {error_detail['message']}"
+                        elif 'code' in error_detail:
+                            error_msg = f"MEXC API Error Code {error_detail['code']}: {error_detail}"
+                except:
+                    error_text = e.response.text if hasattr(e.response, 'text') else str(e.response)
+                    error_msg += f" - {error_text}"
+                    logger.error(f"Response text: {error_text}")
+                    logger.error(f"Response status: {e.response.status_code}")
+                    logger.error(f"Response headers: {dict(e.response.headers)}")
+                    # Try to extract error from text
+                    if 'msg' in error_text or 'message' in error_text:
+                        error_msg = f"MEXC API Error: {error_text}"
+            logger.error(error_msg)
+            raise Exception(f"MEXC API Error: {error_msg}")
         except requests.exceptions.RequestException as e:
             logger.error(f"MEXC API request failed: {e}")
-            if hasattr(e.response, 'text'):
-                logger.error(f"Response: {e.response.text}")
             raise
     
     # Account Methods

@@ -88,3 +88,4 @@ If you want native stop-loss support, you could:
 - When price hits entry, it will execute market order
 - This meets the critical requirement, just via monitoring instead of native orders
 
+

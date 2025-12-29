@@ -174,3 +174,4 @@ class StopLossMonitor:
             position['stop_loss_price'] = new_sl_price
             logger.info(f"Stop-loss price updated for {symbol}: {new_sl_price}")
 
+

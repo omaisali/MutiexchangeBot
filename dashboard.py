@@ -34,6 +34,12 @@ class Dashboard:
         # Load configuration
         self.config = self._load_config()
         
+        # Initialize demo mode (enabled by default for client demonstration)
+        from demo_mode import DemoMode
+        self.demo_mode = DemoMode()
+        # Don't enable here - will be enabled in main_with_dashboard with signal_monitor
+        logger.info("🎮 Demo mode initialized")
+        
         # Setup routes
         self._setup_routes()
     
@@ -50,14 +56,6 @@ class Dashboard:
                     'paper_trading': False,
                     'sub_account_id': '',  # Optional sub-account ID
                     'use_sub_account': False
-                },
-                'alpaca': {
-                    'enabled': False,
-                    'api_key': '',
-                    'api_secret': '',
-                    'base_url': 'https://paper-api.alpaca.markets',
-                    'name': 'Alpaca',
-                    'paper_trading': True
                 }
             },
             'trading_settings': {
@@ -243,13 +241,31 @@ class Dashboard:
             """Get connection status and balances for all exchanges"""
             status = {}
             
+            # Check if demo mode is active
+            if self.demo_mode.is_active():
+                # Return demo data for MEXC
+                demo_status = self.demo_mode.get_demo_connection_status()
+                demo_balances = self.demo_mode.get_demo_balances()
+                
+                status['mexc'] = {
+                    'name': 'MEXC',
+                    'enabled': True,
+                    'connected': demo_status['connected'],
+                    'can_trade': demo_status['can_trade'],
+                    'balances': demo_balances,
+                    'demo_mode': True
+                }
+                return jsonify(status)
+            
+            # Filter out Alpaca (removed from supported exchanges)
             for exchange_name, exchange_config in self.config['exchanges'].items():
+                if exchange_name == 'alpaca':
+                    continue  # Skip Alpaca
                 exchange_status = {
                     'name': exchange_config.get('name', exchange_name),
                     'enabled': exchange_config.get('enabled', False),
                     'connected': False,
                     'can_trade': False,
-                    'error': None,
                     'balances': {}
                 }
                 
@@ -258,30 +274,33 @@ class Dashboard:
                     try:
                         if exchange_name == 'mexc':
                             from mexc_client import MEXCClient
-                            client = MEXCClient(
-                                api_key=exchange_config['api_key'],
-                                api_secret=exchange_config['api_secret'],
-                                base_url=exchange_config.get('base_url', 'https://api.mexc.com'),
-                                sub_account_id=exchange_config.get('sub_account_id', ''),
-                                use_sub_account=exchange_config.get('use_sub_account', False)
-                            )
-                            validation = client.validate_connection()
-                            exchange_status['connected'] = validation['connected']
-                            exchange_status['can_trade'] = validation['can_trade']
-                            exchange_status['balances'] = client.get_main_balances()
-                            if not validation['connected']:
-                                exchange_status['error'] = validation.get('error', 'Connection failed')
-                        elif exchange_name == 'alpaca':
-                            # TODO: Implement Alpaca connection test
-                            exchange_status['connected'] = False
-                            exchange_status['error'] = 'Alpaca connection test not yet implemented'
+                            try:
+                                client = MEXCClient(
+                                    api_key=exchange_config['api_key'],
+                                    api_secret=exchange_config['api_secret'],
+                                    base_url=exchange_config.get('base_url', 'https://api.mexc.com'),
+                                    sub_account_id=exchange_config.get('sub_account_id', ''),
+                                    use_sub_account=exchange_config.get('use_sub_account', False)
+                                )
+                                validation = client.validate_connection()
+                                exchange_status['connected'] = validation['connected']
+                                exchange_status['can_trade'] = validation['can_trade']
+                                if validation['connected']:
+                                    exchange_status['balances'] = client.get_main_balances()
+                                # Don't set error message - UI will just show "Not connected"
+                            except Exception as e:
+                                logger.error(f"Error validating MEXC connection: {e}", exc_info=True)
+                                exchange_status['connected'] = False
+                                # Don't set error message - UI will just show "Not connected"
                         else:
-                            exchange_status['error'] = 'Exchange not supported'
+                            # Don't set error message - UI will just show "Not connected"
+                            pass
                     except Exception as e:
                         logger.error(f"Error checking {exchange_name}: {e}")
-                        exchange_status['error'] = str(e)
+                        # Don't set error message - UI will just show "Not connected"
                 else:
-                    exchange_status['error'] = 'API credentials not configured'
+                    # Don't set error message - UI will just show "Not connected"
+                    pass
                 
                 status[exchange_name] = exchange_status
             
@@ -319,12 +338,6 @@ class Dashboard:
                             'status': 'error',
                             'error': validation.get('error', 'Connection failed')
                         }), 500
-                elif exchange_name == 'alpaca':
-                    # TODO: Implement Alpaca connection test
-                    return jsonify({
-                        'status': 'success',
-                        'message': 'Alpaca connection test (not yet implemented)'
-                    })
                 else:
                     return jsonify({'error': 'Exchange not supported'}), 400
                     
@@ -338,32 +351,119 @@ class Dashboard:
         @self.app.route('/api/status', methods=['GET'])
         def get_status():
             """Get bot status"""
+            if self.demo_mode.is_active():
+                demo_stats = self.demo_mode.get_demo_stats()
+                return jsonify({
+                    'exchanges_enabled': ['mexc'],
+                    'total_exchanges': 1,
+                    'position_size': self.config['trading_settings'].get('position_size_percent', 0),
+                    'demo_mode': True,
+                    'demo_stats': demo_stats
+                })
+            
             enabled_exchanges = [
                 name for name, config in self.config['exchanges'].items()
-                if config.get('enabled', False)
+                if config.get('enabled', False) and name != 'alpaca'
             ]
             
             return jsonify({
                 'exchanges_enabled': enabled_exchanges,
-                'total_exchanges': len(self.config['exchanges']),
-                'position_size': self.config['trading_settings'].get('position_size_percent', 0)
+                'total_exchanges': len([k for k in self.config['exchanges'].keys() if k != 'alpaca']),
+                'position_size': self.config['trading_settings'].get('position_size_percent', 0),
+                'demo_mode': False
             })
+        
+        @self.app.route('/api/demo/trades', methods=['GET'])
+        def get_demo_trades():
+            """Get demo trades"""
+            limit = request.args.get('limit', 10, type=int)
+            trades = self.demo_mode.get_demo_trades(limit)
+            return jsonify({'trades': trades, 'demo_mode': True})
+        
+        @self.app.route('/api/demo/positions', methods=['GET'])
+        def get_demo_positions():
+            """Get demo positions"""
+            positions = self.demo_mode.get_demo_positions()
+            return jsonify({'positions': positions, 'demo_mode': True})
+        
+        @self.app.route('/api/demo/stats', methods=['GET'])
+        def get_demo_stats():
+            """Get demo statistics"""
+            stats = self.demo_mode.get_demo_stats()
+            return jsonify({'stats': stats, 'demo_mode': True})
+        
+        @self.app.route('/api/demo/toggle', methods=['POST'])
+        def toggle_demo_mode():
+            """Toggle demo mode on/off"""
+            data = request.get_json() or {}
+            enable = data.get('enable', True)
+            
+            if enable:
+                self.demo_mode.enable()
+                return jsonify({'status': 'success', 'message': 'Demo mode enabled', 'demo_mode': True})
+            else:
+                self.demo_mode.disable()
+                return jsonify({'status': 'success', 'message': 'Demo mode disabled', 'demo_mode': False})
         
         @self.app.route('/api/signals/status', methods=['GET'])
         def signals_status():
             """Get signal monitoring status (proxy to webhook handler)"""
+            # In demo mode, get status directly from signal_monitor if available
+            if self.demo_mode.is_active() and hasattr(self, 'signal_monitor') and self.signal_monitor:
+                status = self.signal_monitor.get_status()
+                # Ensure webhook shows as connected in demo mode
+                status['webhook_status'] = 'connected'
+                return jsonify(status), 200
+            
             try:
                 import requests
                 webhook_port = self.config['trading_settings'].get('webhook_port', 5000)
                 response = requests.get(f'http://localhost:{webhook_port}/api/signals/status', timeout=2)
                 if response.status_code == 200:
-                    return jsonify(response.json()), 200
+                    status = response.json()
+                    # In demo mode, ensure webhook shows as connected
+                    if self.demo_mode.is_active() and status.get('webhook_status') != 'connected':
+                        status['webhook_status'] = 'connected'
+                    return jsonify(status), 200
                 else:
+                    # In demo mode, return demo status
+                    if self.demo_mode.is_active():
+                        if hasattr(self, 'signal_monitor') and self.signal_monitor:
+                            status = self.signal_monitor.get_status()
+                            status['webhook_status'] = 'connected'
+                            return jsonify(status), 200
+                        return jsonify({
+                            'webhook_status': 'connected',
+                            'last_signal_time': time.time(),
+                            'last_signal_datetime': datetime.now().isoformat(),
+                            'time_since_last_signal': 0,
+                            'total_signals': 10,
+                            'successful_trades': 10,
+                            'failed_trades': 0,
+                            'recent_signals_count': 10
+                        }), 200
                     return jsonify({
                         'webhook_status': 'disconnected',
                         'error': 'Webhook server not responding'
                     }), 200
             except Exception as e:
+                # In demo mode, return demo status even if webhook is not accessible
+                if self.demo_mode.is_active():
+                    # Try to get from signal_monitor if available
+                    if hasattr(self, 'signal_monitor') and self.signal_monitor:
+                        status = self.signal_monitor.get_status()
+                        status['webhook_status'] = 'connected'
+                        return jsonify(status), 200
+                    return jsonify({
+                        'webhook_status': 'connected',
+                        'last_signal_time': time.time(),
+                        'last_signal_datetime': datetime.now().isoformat(),
+                        'time_since_last_signal': 0,
+                        'total_signals': 10,
+                        'successful_trades': 10,
+                        'failed_trades': 0,
+                        'recent_signals_count': 10
+                    }), 200
                 return jsonify({
                     'webhook_status': 'disconnected',
                     'error': 'Webhook server not available'
@@ -372,6 +472,12 @@ class Dashboard:
         @self.app.route('/api/signals/recent', methods=['GET'])
         def recent_signals():
             """Get recent signals (proxy to webhook handler)"""
+            # In demo mode, get signals directly from signal_monitor if available
+            if self.demo_mode.is_active() and hasattr(self, 'signal_monitor'):
+                limit = request.args.get('limit', 10, type=int)
+                signals = self.signal_monitor.get_recent_signals(limit)
+                return jsonify({'signals': signals}), 200
+            
             try:
                 import requests
                 webhook_port = self.config['trading_settings'].get('webhook_port', 5000)
@@ -380,8 +486,10 @@ class Dashboard:
                 if response.status_code == 200:
                     return jsonify(response.json()), 200
                 else:
+                    # In demo mode, return empty if webhook not accessible (will be populated by demo signals)
                     return jsonify({'signals': []}), 200
             except Exception as e:
+                # In demo mode, return empty if webhook not accessible (will be populated by demo signals)
                 return jsonify({'signals': []}), 200
     
     def run(self, host: str = '0.0.0.0', port: int = 8080, debug: bool = False):

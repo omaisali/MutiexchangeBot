@@ -169,9 +169,6 @@ def create_exchange_clients(config: dict) -> dict:
                     logging.error(f"❌ {exchange_name} connection failed: {error_msg}")
                     logging.warning(f"{exchange_name} will not be available for trading")
                     
-            elif exchange_name == 'alpaca':
-                # TODO: Implement Alpaca client
-                logging.info(f"Alpaca client initialization (not yet implemented)")
             else:
                 logging.warning(f"Unknown exchange: {exchange_name}")
         except Exception as e:
@@ -230,33 +227,44 @@ def main():
         logger.info("Trading executor initialized")
         logger.info("⚠️  CRITICAL: Stop-loss will move to entry after TP1 (hard requirement)")
     
-    # Initialize webhook handler (only if we have an executor)
-    webhook_handler = None
-    if trading_executor:
-        # Use PORT from environment (for Railway/Render) or config default
-        webhook_port = int(os.getenv('PORT', trading_settings.get('webhook_port', 5000)))
-        webhook_host = trading_settings.get('webhook_host', '0.0.0.0')
-        
-        webhook_handler = WebhookHandler(trading_executor, signal_monitor)
-        logger.info("Webhook handler initialized")
-        
-        # Start webhook server in a separate thread
-        def run_webhook():
-            try:
-                webhook_handler.run(
-                    host=webhook_host,
-                    port=webhook_port,
-                    debug=(log_level.upper() == 'DEBUG')
-                )
-            except Exception as e:
-                logger.error(f"Webhook server error: {e}")
-        
-        webhook_thread = threading.Thread(target=run_webhook, daemon=True)
-        webhook_thread.start()
-        logger.info(f"Webhook server started on {webhook_host}:{webhook_port}")
+    # Initialize webhook handler (always initialize, even without executor for demo mode)
+    # Use PORT from environment (for Railway/Render) or config default
+    webhook_port = int(os.getenv('PORT', trading_settings.get('webhook_port', 5000)))
+    webhook_host = trading_settings.get('webhook_host', '0.0.0.0')
+    
+    # Initialize webhook handler (can work in demo mode without executor)
+    webhook_handler = WebhookHandler(trading_executor, signal_monitor)
+    logger.info("Webhook handler initialized")
+    
+    # Start webhook server in a separate thread
+    def run_webhook():
+        try:
+            webhook_handler.run(
+                host=webhook_host,
+                port=webhook_port,
+                debug=(log_level.upper() == 'DEBUG')
+            )
+        except Exception as e:
+            logger.error(f"Webhook server error: {e}")
+    
+    webhook_thread = threading.Thread(target=run_webhook, daemon=True)
+    webhook_thread.start()
+    logger.info(f"Webhook server started on {webhook_host}:{webhook_port}")
+    
+    if not trading_executor:
+        logger.info("🎮 Running in demo mode - Webhook will simulate trades")
     
     # Initialize and start dashboard
     dashboard = Dashboard()
+    
+    # Enable demo mode with signal monitor for demo signals
+    if dashboard.demo_mode and not dashboard.demo_mode.is_active():
+        dashboard.demo_mode.enable(signal_monitor)
+        logger.info("🎮 Demo mode enabled with demo signals")
+    
+    # Set signal_monitor reference in dashboard for API endpoints
+    dashboard.signal_monitor = signal_monitor
+    
     # Use PORT from environment (for Railway/Render) or config default
     # Dashboard and webhook run on same port (single Flask app)
     dashboard_port = int(os.getenv('PORT', os.getenv('DASHBOARD_PORT', 8080)))

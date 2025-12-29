@@ -40,12 +40,19 @@ class SignalMonitor:
             error: Error message if execution failed
         """
         with self.lock:
+            # Handle price as dict or direct value
+            price_value = 0
+            if isinstance(signal_data.get('price'), dict):
+                price_value = signal_data.get('price', {}).get('close', 0)
+            elif signal_data.get('price'):
+                price_value = float(signal_data.get('price', 0))
+            
             signal_record = {
                 'timestamp': time.time(),
                 'datetime': datetime.now().isoformat(),
                 'symbol': signal_data.get('symbol', ''),
                 'signal': signal_data.get('signal', ''),
-                'price': signal_data.get('price', {}).get('close', 0),
+                'price': price_value,
                 'executed': executed,
                 'error': error,
                 'indicators': signal_data.get('indicators', {})

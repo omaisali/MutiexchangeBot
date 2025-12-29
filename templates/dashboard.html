@@ -12,9 +12,14 @@
         <!-- Header -->
         <header class="dashboard-header">
             <h1><i class="fas fa-chart-line"></i> Trading Bot Dashboard</h1>
-            <div class="status-indicator">
-                <span class="status-dot" id="statusDot"></span>
-                <span id="statusText">Loading...</span>
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <div id="demoModeBadge" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                    <i class="fas fa-flask"></i> DEMO MODE - Testing Environment
+                </div>
+                <div class="status-indicator">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span id="statusText">Loading...</span>
+                </div>
             </div>
         </header>
 
@@ -95,6 +100,59 @@
                 <h2><i class="fas fa-exchange-alt"></i> Exchanges</h2>
                 <div class="exchanges-list" id="exchangesList">
                     <!-- Exchange list items will be dynamically loaded -->
+                </div>
+            </section>
+
+            <!-- Trading Activity Section (Demo) -->
+            <section class="dashboard-section" id="tradingActivitySection" style="display: none;">
+                <h2><i class="fas fa-chart-bar"></i> Trading Activity</h2>
+                <div id="tradingStats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                    <!-- Stats will be loaded here -->
+                </div>
+                <div>
+                    <h3 style="font-size: 14px; margin-bottom: 8px;">Recent Trades</h3>
+                    <div class="signals-table-container">
+                        <table class="signals-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Price</th>
+                                    <th>Quantity</th>
+                                    <th>Amount</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="demoTradesTableBody">
+                                <tr>
+                                    <td colspan="7" class="no-signals">No trades yet</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div style="margin-top: 16px;">
+                    <h3 style="font-size: 14px; margin-bottom: 8px;">Open Positions</h3>
+                    <div class="signals-table-container">
+                        <table class="signals-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Entry Price</th>
+                                    <th>Current Price</th>
+                                    <th>Quantity</th>
+                                    <th>PnL</th>
+                                </tr>
+                            </thead>
+                            <tbody id="demoPositionsTableBody">
+                                <tr>
+                                    <td colspan="6" class="no-signals">No open positions</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </section>
 

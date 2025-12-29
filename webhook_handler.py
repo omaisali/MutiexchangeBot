@@ -17,12 +17,12 @@ logger = logging.getLogger(__name__)
 class WebhookHandler:
     """Handles TradingView webhook requests"""
     
-    def __init__(self, trading_executor: TradingExecutor, signal_monitor: Optional[SignalMonitor] = None):
+    def __init__(self, trading_executor: Optional[TradingExecutor] = None, signal_monitor: Optional[SignalMonitor] = None):
         """
         Initialize Webhook Handler
         
         Args:
-            trading_executor: TradingExecutor instance
+            trading_executor: TradingExecutor instance (optional for demo mode)
             signal_monitor: Optional SignalMonitor instance
         """
         self.executor = trading_executor
@@ -60,18 +60,47 @@ class WebhookHandler:
                     self.signal_monitor.add_signal(data if data else {}, executed=False, error=error_msg)
                     return jsonify({'status': 'error', 'message': error_msg}), 400
                 
-                # Execute trading signal
-                order_response = self.executor.execute_signal(signal_data)
-                
-                if order_response:
-                    self.signal_monitor.add_signal(signal_data, executed=True)
-                    return jsonify({
-                        'status': 'success',
-                        'message': 'Order executed successfully',
-                        'order': order_response
-                    }), 200
+                # Execute trading signal (or simulate in demo mode)
+                if self.executor:
+                    order_response = self.executor.execute_signal(signal_data)
+                    
+                    if order_response:
+                        self.signal_monitor.add_signal(signal_data, executed=True)
+                        return jsonify({
+                            'status': 'success',
+                            'message': 'Order executed successfully',
+                            'order': order_response
+                        }), 200
+                    else:
+                        error_msg = 'Failed to execute order'
+                        self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
+                        return jsonify({
+                            'status': 'error',
+                            'message': error_msg
+                        }), 500
                 else:
-                    error_msg = 'Failed to execute order'
+                    # Demo mode: simulate trade execution
+                    from demo_mode import DemoMode
+                    demo = DemoMode()
+                    if demo.is_active():
+                        # Simulate trade execution
+                        price = float(signal_data.get('price', 0))
+                        symbol = signal_data.get('symbol', 'BTCUSDT')
+                        side = signal_data.get('signal', 'BUY')
+                        # Estimate quantity based on typical position size
+                        quantity = (1000 / price) if price > 0 else 0.01  # Simulate $1000 trade
+                        
+                        trade = demo.simulate_trade(symbol, side, price, quantity)
+                        logger.info(f"🎮 Demo trade simulated: {trade}")
+                        self.signal_monitor.add_signal(signal_data, executed=True)
+                        return jsonify({
+                            'status': 'success',
+                            'message': 'Demo trade executed successfully',
+                            'order': trade,
+                            'demo': True
+                        }), 200
+                    
+                    error_msg = 'No trading executor available'
                     self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
                     return jsonify({
                         'status': 'error',

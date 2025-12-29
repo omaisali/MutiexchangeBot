@@ -93,3 +93,4 @@ Your bot is now live and running 24/7!
 3. Check dashboard for connection status
 4. Verify balances are showing
 
+

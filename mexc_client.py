@@ -8,7 +8,7 @@ import hashlib
 import time
 import requests
 import json
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 from urllib.parse import urlencode
 import logging
 
@@ -50,30 +50,43 @@ class MEXCClient:
             # Log full secret for debugging (only in logs, not exposed to user)
             logger.info(f"   Full API Secret: {self.api_secret}")
         
-    def _generate_signature(self, params: Dict) -> str:
+    def _get_server_time(self) -> int:
+        """
+        Get MEXC server time to avoid timestamp drift issues
+        
+        Returns:
+            Server time in milliseconds
+        """
+        try:
+            response = self.session.get(f"{self.base_url}/api/v3/time", timeout=5)
+            if response.status_code == 200:
+                server_time = response.json().get('serverTime', int(time.time() * 1000))
+                logger.debug(f"⏰ MEXC server time: {server_time}")
+                return server_time
+        except Exception as e:
+            logger.warning(f"Could not get MEXC server time, using local time: {e}")
+        
+        # Fallback to local time
+        return int(time.time() * 1000)
+    
+    def _generate_signature(self, params_list: List[Tuple[str, any]]) -> str:
         """
         Generate HMAC-SHA256 signature for authenticated requests
         
-        MEXC API signature format:
-        1. Sort all parameters alphabetically by key (excluding signature itself)
-        2. Create query string: key1=value1&key2=value2
+        MEXC API signature format (CRITICAL):
+        1. Parameters must be in ORDERED list of tuples (NOT dict)
+        2. Build query string EXACTLY as it will appear in URL
         3. Generate HMAC-SHA256 with API secret
+        4. Parameter order in signature MUST match final request order
         
         Args:
-            params: Request parameters dictionary (should NOT include signature)
+            params_list: Ordered list of (key, value) tuples (should NOT include signature)
             
         Returns:
             Signature string
         """
-        # Remove signature if present (shouldn't be, but just in case)
-        params_copy = {k: v for k, v in params.items() if k != 'signature'}
-        
-        # Sort parameters alphabetically by key
-        sorted_params = sorted(params_copy.items())
-        
-        # Create query string: key1=value1&key2=value2
-        # Use doseq=False to handle lists correctly
-        query_string = urlencode(sorted_params, doseq=False)
+        # Build query string EXACTLY as it will appear in URL
+        query_string = "&".join(f"{k}={v}" for k, v in params_list)
         
         # Generate HMAC-SHA256 signature
         signature = hmac.new(
@@ -82,9 +95,9 @@ class MEXCClient:
             hashlib.sha256
         ).hexdigest()
         
-        # Always log signature details for troubleshooting (use INFO level so it always shows)
+        # Always log signature details for troubleshooting
         logger.info(f"🔐 Signature generation:")
-        logger.info(f"   Params: {sorted_params}")
+        logger.info(f"   Params (ordered): {params_list}")
         logger.info(f"   Query string: {query_string}")
         logger.info(f"   API Secret length: {len(self.api_secret)}")
         logger.info(f"   API Secret (first 6): {self.api_secret[:6]}...")
@@ -111,30 +124,42 @@ class MEXCClient:
         params = params or {}
         
         if signed:
-            # MEXC RULE: ALL query parameters must be included in signature, in sorted order
-            # Step 1: Add ALL parameters FIRST (timestamp AND recvWindow)
-            timestamp = int(time.time() * 1000)
-            params['timestamp'] = timestamp
-            params['recvWindow'] = 5000
+            # MEXC CRITICAL RULE: Parameter order in signature MUST match final request order
+            # Use ordered list of tuples to maintain exact order
             
-            # Add sub-account ID if using sub-account
+            # Step 1: Get server time to avoid drift (MEXC is very sensitive)
+            timestamp = self._get_server_time()
+            
+            # Step 2: Build ORDERED params list (order matters!)
+            # MEXC expects: recvWindow, timestamp (alphabetically sorted, then signature last)
+            params_list = [
+                ("recvWindow", 5000),
+                ("timestamp", timestamp),
+            ]
+            
+            # Add sub-account ID if using sub-account (maintain alphabetical order)
             if self.use_sub_account and self.sub_account_id:
-                params['subAccountId'] = self.sub_account_id
+                # Insert in alphabetical order
+                params_list.insert(1, ("subAccountId", self.sub_account_id))
+                # Re-sort to maintain alphabetical order
+                params_list = sorted(params_list, key=lambda x: x[0])
             
             # Log request details before signature generation
             logger.info(f"📤 Making signed request to {endpoint}")
             logger.info(f"   Method: {method}")
             logger.info(f"   Timestamp: {timestamp}")
-            logger.info(f"   Params (before signature): {params}")
+            logger.info(f"   Params (ordered, before signature): {params_list}")
             
-            # Step 2: Generate signature from ALL params (including recvWindow)
-            # Signature must include ALL parameters that will be in the query string
-            signature = self._generate_signature(params)
+            # Step 3: Generate signature from ordered params
+            signature = self._generate_signature(params_list)
             
-            # Step 3: Add signature to params
-            params['signature'] = signature
+            # Step 4: Append signature LAST (maintain order)
+            params_list.append(("signature", signature))
             
-            logger.info(f"   Final params (with signature): {list(params.keys())}")
+            # Convert to dict for requests library (but maintain order via params_list)
+            params = dict(params_list)
+            
+            logger.info(f"   Final params (ordered): {params_list}")
             
             # MEXC API uses X-MEXC-APIKEY header
             # Note: Some MEXC API versions might use different header names
@@ -149,27 +174,19 @@ class MEXCClient:
         
         try:
             if method.upper() == 'GET':
-                # For GET requests, params go in query string
-                # Build query string manually to ensure correct order: timestamp, signature, recvWindow
-                # MEXC may be sensitive to parameter order in URL
-                query_parts = []
-                if 'timestamp' in params:
-                    query_parts.append(f"timestamp={params['timestamp']}")
-                if 'signature' in params:
-                    query_parts.append(f"signature={params['signature']}")
-                if 'recvWindow' in params:
-                    query_parts.append(f"recvWindow={params['recvWindow']}")
-                # Add any other params (like subAccountId)
-                for key, value in sorted(params.items()):
-                    if key not in ['timestamp', 'signature', 'recvWindow']:
-                        query_parts.append(f"{key}={value}")
-                
-                full_url = f"{url}?{'&'.join(query_parts)}"
-                logger.info(f"🌐 Full request URL: {full_url[:200]}...")  # Show more for debugging
-                logger.info(f"📋 Request headers: X-MEXC-APIKEY={self.api_key[:6]}...{self.api_key[-4:]}")
-                
-                # Use the manually built URL instead of params dict to ensure order
-                response = self.session.get(full_url, headers=headers, timeout=10)
+                # For GET requests, use ordered params_list to maintain exact order
+                # CRITICAL: Order must match signature order (recvWindow, timestamp, then signature)
+                if signed and 'params_list' in locals():
+                    # Use the ordered params_list to build URL (maintains exact order)
+                    query_string = "&".join(f"{k}={v}" for k, v in params_list)
+                    full_url = f"{url}?{query_string}"
+                    logger.info(f"🌐 Full request URL: {full_url[:200]}...")  # Show more for debugging
+                    logger.info(f"📋 Request headers: X-MEXC-APIKEY={self.api_key[:6]}...{self.api_key[-4:]}")
+                    # Use manually built URL to ensure exact parameter order
+                    response = self.session.get(full_url, headers=headers, timeout=10)
+                else:
+                    # For non-signed requests, use standard params dict
+                    response = self.session.get(url, params=params, headers=headers, timeout=10)
             elif method.upper() == 'POST':
                 # For POST requests, check if params should be in body or query
                 # MEXC typically uses JSON body for POST

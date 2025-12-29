@@ -40,6 +40,10 @@ LOG_LEVEL=INFO
 PORT=8080
 ```
 
+**Note:** Demo mode is **disabled by default**. The bot will use **real API connections** and execute **real trades**. 
+- To enable demo mode (for testing), add: `DEMO_MODE=true`
+- **Important:** Configure your exchange API keys in the dashboard after deployment.
+
 ### Step 4: Get Your URL
 
 Railway provides a URL like:
@@ -60,6 +64,19 @@ Visit:
 ```
 https://your-app-name.up.railway.app
 ```
+
+### Step 7: Configure Exchange API Keys
+
+1. **Open the dashboard** at your Railway URL
+2. **Click "Configure Exchange"** for MEXC
+3. **Enter your API credentials:**
+   - API Key
+   - API Secret
+   - Base URL: `https://api.mexc.com`
+4. **Click "Test Connection"** to verify
+5. **Enable the exchange** and **Save**
+
+**⚠️ Important:** The bot uses **REAL trading** by default. Ensure your API keys have proper permissions and you're ready for live trading.
 
 ## ✅ Done!
 

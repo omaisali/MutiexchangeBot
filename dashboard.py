@@ -34,11 +34,11 @@ class Dashboard:
         # Load configuration
         self.config = self._load_config()
         
-        # Initialize demo mode (enabled by default for client demonstration)
+        # Initialize demo mode (disabled by default, enable via DEMO_MODE=true env var)
         from demo_mode import DemoMode
         self.demo_mode = DemoMode()
-        # Don't enable here - will be enabled in main_with_dashboard with signal_monitor
-        logger.info("🎮 Demo mode initialized")
+        # Demo mode will be enabled in main_with_dashboard.py only if DEMO_MODE=true
+        logger.info("Demo mode instance created (disabled by default)")
         
         # Setup routes
         self._setup_routes()

@@ -251,16 +251,29 @@ def main():
     webhook_thread.start()
     logger.info(f"Webhook server started on {webhook_host}:{webhook_port}")
     
+    # Check if demo mode should be enabled (opt-in via environment variable)
+    enable_demo_mode = os.getenv('DEMO_MODE', 'false').lower() == 'true'
+    
     if not trading_executor:
-        logger.info("🎮 Running in demo mode - Webhook will simulate trades")
+        if enable_demo_mode:
+            logger.info("🎮 Running in demo mode - Webhook will simulate trades")
+        else:
+            logger.warning("⚠️  No trading executor available. Please configure exchange API keys in dashboard.")
+            logger.warning("⚠️  Set DEMO_MODE=true environment variable to enable demo mode.")
     
     # Initialize and start dashboard
     dashboard = Dashboard()
     
-    # Enable demo mode with signal monitor for demo signals
-    if dashboard.demo_mode and not dashboard.demo_mode.is_active():
-        dashboard.demo_mode.enable(signal_monitor)
-        logger.info("🎮 Demo mode enabled with demo signals")
+    # Enable demo mode only if explicitly requested via environment variable
+    if enable_demo_mode:
+        if dashboard.demo_mode and not dashboard.demo_mode.is_active():
+            dashboard.demo_mode.enable(signal_monitor)
+            logger.info("🎮 Demo mode enabled with demo signals")
+    else:
+        # Ensure demo mode is disabled
+        if dashboard.demo_mode and dashboard.demo_mode.is_active():
+            dashboard.demo_mode.disable()
+            logger.info("✅ Demo mode disabled - Using real API connections")
     
     # Set signal_monitor reference in dashboard for API endpoints
     dashboard.signal_monitor = signal_monitor

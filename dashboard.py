@@ -111,8 +111,14 @@ class Dashboard:
             """Get specific exchange configuration"""
             if exchange_name in self.config['exchanges']:
                 exchange_config = self.config['exchanges'][exchange_name].copy()
-                # Don't return secrets in GET request
+                # Return actual API key (needed for display)
+                # Mask API secret for security (show '***' if secret exists)
                 exchange_config['api_secret'] = '***' if exchange_config.get('api_secret') else ''
+                # Log what we're returning (for debugging)
+                logger.debug(f"📤 Returning exchange config for {exchange_name}:")
+                logger.debug(f"   API Key present: {bool(exchange_config.get('api_key'))}")
+                logger.debug(f"   API Key length: {len(exchange_config.get('api_key', ''))}")
+                logger.debug(f"   API Secret present: {bool(exchange_config.get('api_secret') == '***')}")
                 return jsonify(exchange_config)
             return jsonify({'error': 'Exchange not found'}), 404
         
@@ -131,20 +137,26 @@ class Dashboard:
             if 'enabled' in data:
                 exchange['enabled'] = bool(data['enabled'])
             
-            if 'api_key' in data and data['api_key']:
-                # Trim whitespace to prevent signature errors
-                old_key = exchange.get('api_key', '')
-                exchange['api_key'] = data['api_key'].strip()
-                # Log saved key (masked) for verification
-                saved_key = exchange['api_key']
-                masked_key = f"{saved_key[:6]}...{saved_key[-4:]}" if len(saved_key) > 10 else "***"
-                logger.info(f"💾 Saved {exchange_name} API Key: {masked_key} (length: {len(saved_key)})")
-                if old_key and old_key != saved_key:
-                    logger.info(f"   Previous key: {old_key[:6]}...{old_key[-4:] if len(old_key) > 10 else '***'}")
+            if 'api_key' in data:
+                # Always update if provided (even if empty, to allow clearing)
+                if data['api_key']:
+                    # Trim whitespace to prevent signature errors
+                    old_key = exchange.get('api_key', '')
+                    exchange['api_key'] = data['api_key'].strip()
+                    # Log saved key (masked) for verification
+                    saved_key = exchange['api_key']
+                    masked_key = f"{saved_key[:6]}...{saved_key[-4:]}" if len(saved_key) > 10 else "***"
+                    logger.info(f"💾 Saved {exchange_name} API Key: {masked_key} (length: {len(saved_key)})")
+                    if old_key and old_key != saved_key:
+                        logger.info(f"   Previous key: {old_key[:6]}...{old_key[-4:] if len(old_key) > 10 else '***'}")
+                else:
+                    # Allow clearing the key
+                    exchange['api_key'] = ''
+                    logger.info(f"💾 Cleared {exchange_name} API Key")
             
-            if 'api_secret' in data and data['api_secret']:
-                # Only update if not masked
-                if data['api_secret'] != '***':
+            if 'api_secret' in data:
+                # Only update if not masked and not empty
+                if data['api_secret'] and data['api_secret'] != '***':
                     # Trim whitespace to prevent signature errors
                     old_secret = exchange.get('api_secret', '')
                     exchange['api_secret'] = data['api_secret'].strip()
@@ -154,6 +166,11 @@ class Dashboard:
                     logger.info(f"💾 Saved {exchange_name} API Secret: {masked_secret} (length: {len(saved_secret)})")
                     if old_secret and old_secret != saved_secret:
                         logger.info(f"   Previous secret: {old_secret[:6]}...{old_secret[-4:] if len(old_secret) > 10 else '***'}")
+                elif data['api_secret'] == '':
+                    # Allow clearing the secret
+                    exchange['api_secret'] = ''
+                    logger.info(f"💾 Cleared {exchange_name} API Secret")
+                # If '***', do nothing (keep existing secret)
             
             if 'base_url' in data:
                 exchange['base_url'] = data['base_url']

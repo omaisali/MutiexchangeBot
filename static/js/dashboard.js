@@ -322,8 +322,17 @@ async function openExchangeModal(exchangeName) {
     document.getElementById('exchangeName').value = exchangeName;
     document.getElementById('modalTitle').textContent = `Configure ${exchange.name}`;
     document.getElementById('exchangeEnabled').checked = exchange.enabled || false;
-    document.getElementById('exchangeApiKey').value = exchange.api_key || '';
-    document.getElementById('exchangeApiSecret').value = exchange.api_secret ? '***' : '';
+    // Set API key (show actual value if saved)
+    const apiKeyField = document.getElementById('exchangeApiKey');
+    apiKeyField.value = exchange.api_key || '';
+    console.log(`Loading exchange ${exchangeName}: API Key length = ${(exchange.api_key || '').length}`);
+    
+    // Set API secret (show '***' if secret exists, empty if not)
+    const apiSecretField = document.getElementById('exchangeApiSecret');
+    apiSecretField.value = (exchange.api_secret && exchange.api_secret !== '') ? '***' : '';
+    // Store original secret status for later comparison
+    apiSecretField.dataset.hasSecret = (exchange.api_secret && exchange.api_secret !== '') ? 'true' : 'false';
+    console.log(`Loading exchange ${exchangeName}: API Secret present = ${apiSecretField.dataset.hasSecret}`);
     document.getElementById('exchangeBaseUrl').value = exchange.base_url || '';
     
     // Show paper trading option for Alpaca
@@ -375,8 +384,8 @@ async function saveExchange() {
     
     const data = {
         enabled: document.getElementById('exchangeEnabled').checked,
-        api_key: document.getElementById('exchangeApiKey').value,
-        api_secret: document.getElementById('exchangeApiSecret').value,
+        api_key: document.getElementById('exchangeApiKey').value.trim(),
+        api_secret: document.getElementById('exchangeApiSecret').value.trim(),
         base_url: document.getElementById('exchangeBaseUrl').value
     };
     
@@ -392,8 +401,18 @@ async function saveExchange() {
     }
     
     // Don't send masked secret
-    if (data.api_secret === '***') {
+    // Don't send '***' as the secret - it means "keep existing secret"
+    const secretField = document.getElementById('exchangeApiSecret');
+    if (data.api_secret === '***' || (data.api_secret === '' && secretField.dataset.hasSecret === 'true')) {
+        // If field shows '***' or is empty but we had a secret, don't update it
         delete data.api_secret;
+        console.log('Keeping existing API secret (not updating)');
+    } else if (data.api_secret === '') {
+        // If field is empty and we didn't have a secret, send empty to clear it
+        console.log('Clearing API secret');
+    } else {
+        // New secret provided
+        console.log('Updating API secret (new value provided)');
     }
     
     try {

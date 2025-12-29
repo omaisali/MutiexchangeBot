@@ -22,6 +22,12 @@ git push origin main
 
 In Railway dashboard → Variables tab, add:
 
+**Required for Python Installation:**
+```
+RAILPACK_PYTHON_VERSION=3.11.9
+```
+
+**Trading Bot Configuration:**
 ```
 MEXC_API_KEY=your_mexc_api_key
 MEXC_API_SECRET=your_mexc_api_secret
@@ -31,6 +37,7 @@ WEBHOOK_HOST=0.0.0.0
 POSITION_SIZE_PERCENT=20.0
 STOP_LOSS_PERCENT=5.0
 LOG_LEVEL=INFO
+PORT=8080
 ```
 
 ### Step 4: Get Your URL
@@ -66,10 +73,17 @@ Your bot is now live and running 24/7!
 
 ## 🔧 Troubleshooting
 
+**❌ Mise/Python Installation Error:**
+If you see: `mise ERROR Failed to install core:python@3.11.0`
+1. **Add environment variable**: `RAILPACK_PYTHON_VERSION=3.11.9` (in Railway Variables tab)
+2. **Clear build cache**: Railway dashboard → Settings → Clear Build Cache → Redeploy
+3. **Alternative**: If still failing, add `MISE_PYTHON_COMPILE=1` (compiles from source, slower but works)
+
 **Bot not starting?**
 - Check logs in Railway dashboard
 - Verify all environment variables are set
 - Check Python version matches `runtime.txt`
+- Ensure `RAILPACK_PYTHON_VERSION` is set
 
 **Webhook not receiving?**
 - Verify URL is HTTPS (required by TradingView)

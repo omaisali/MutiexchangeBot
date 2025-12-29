@@ -1,0 +1,11 @@
+# Ignore files that might confuse Railway's build system
+.mise.toml
+.mise/
+*.log
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+

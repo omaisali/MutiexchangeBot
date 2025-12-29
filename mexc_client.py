@@ -42,9 +42,13 @@ class MEXCClient:
         if self.api_key:
             masked_key = f"{self.api_key[:6]}...{self.api_key[-4:]}" if len(self.api_key) > 10 else "***"
             logger.info(f"🔑 Loaded MEXC API Key: {masked_key} (length: {len(self.api_key)})")
+            # Log full key for debugging (only in logs, not exposed to user)
+            logger.info(f"   Full API Key: {self.api_key}")
         if self.api_secret:
             masked_secret = f"{self.api_secret[:6]}...{self.api_secret[-4:]}" if len(self.api_secret) > 10 else "***"
             logger.info(f"🔑 Loaded MEXC API Secret: {masked_secret} (length: {len(self.api_secret)})")
+            # Log full secret for debugging (only in logs, not exposed to user)
+            logger.info(f"   Full API Secret: {self.api_secret}")
         
     def _generate_signature(self, params: Dict) -> str:
         """

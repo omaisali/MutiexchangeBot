@@ -104,16 +104,25 @@ class MEXCClient:
         
         if signed:
             # Add timestamp and recvWindow
-            params['timestamp'] = int(time.time() * 1000)
+            timestamp = int(time.time() * 1000)
+            params['timestamp'] = timestamp
             params['recvWindow'] = 5000
             
             # Add sub-account ID if using sub-account
             if self.use_sub_account and self.sub_account_id:
                 params['subAccountId'] = self.sub_account_id
             
+            # Log request details before signature generation
+            logger.info(f"📤 Making signed request to {endpoint}")
+            logger.info(f"   Method: {method}")
+            logger.info(f"   Timestamp: {timestamp}")
+            logger.info(f"   Params (before signature): {params}")
+            
             # Generate signature BEFORE adding it to params
             signature = self._generate_signature(params)
             params['signature'] = signature
+            
+            logger.info(f"   Final params (with signature): {list(params.keys())}")
             
             # MEXC API uses X-MEXC-APIKEY header
             # Note: Some MEXC API versions might use different header names

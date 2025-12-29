@@ -301,32 +301,40 @@ class MEXCClient:
     
     def get_main_balances(self) -> Dict:
         """
-        Get main trading balances (USDT, BTC, ETH, etc.)
+        Get all account balances (all assets with balance > 0)
         
         Returns:
-            Dictionary with main asset balances
+            Dictionary with all asset balances
         """
         try:
             balances = self.get_balance()
-            main_assets = ['USDT', 'BTC', 'ETH', 'BNB', 'SOL']
-            main_balances = {}
+            all_balances = {}
             
             for balance in balances:
                 asset = balance.get('asset', '')
-                if asset in main_assets:
-                    free = float(balance.get('free', 0))
-                    locked = float(balance.get('locked', 0))
-                    total = free + locked
-                    if total > 0:
-                        main_balances[asset] = {
-                            'free': free,
-                            'locked': locked,
-                            'total': total
-                        }
+                free = float(balance.get('free', 0))
+                locked = float(balance.get('locked', 0))
+                total = free + locked
+                
+                # Include all assets with balance > 0
+                if total > 0:
+                    all_balances[asset] = {
+                        'free': free,
+                        'locked': locked,
+                        'total': total
+                    }
             
-            return main_balances
+            # Log balances for debugging
+            if all_balances:
+                balance_str = ', '.join([f"{asset}: {bal['total']:.8f}" 
+                                       for asset, bal in sorted(all_balances.items())])
+                logger.info(f"💰 Account balances: {balance_str}")
+            else:
+                logger.info("💰 Account balances: No balances found (all zero)")
+            
+            return all_balances
         except Exception as e:
-            logger.error(f"Error getting main balances: {e}")
+            logger.error(f"Error getting balances: {e}")
             return {}
     
     # Market Methods

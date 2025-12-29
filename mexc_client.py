@@ -8,7 +8,7 @@ import hashlib
 import time
 import requests
 import json
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Any
 from urllib.parse import urlencode
 import logging
 
@@ -69,7 +69,7 @@ class MEXCClient:
         # Fallback to local time
         return int(time.time() * 1000)
     
-    def _generate_signature(self, params_list: List[Tuple[str, any]]) -> str:
+    def _generate_signature(self, params_list: List[Tuple[str, Any]]) -> str:
         """
         Generate HMAC-SHA256 signature for authenticated requests
         

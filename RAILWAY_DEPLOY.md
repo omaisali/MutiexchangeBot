@@ -18,7 +18,23 @@ git push origin main
 5. **Select your repository**
 6. **Railway auto-detects Python** ✅
 
-### Step 3: Add Environment Variables
+### Step 3: Configure MEXC API Key
+
+**⚠️ CRITICAL: Disable IP Whitelisting in MEXC**
+
+Railway uses **dynamic IP addresses** that change with each deployment. You **must disable IP whitelisting** in your MEXC API key settings.
+
+**Steps:**
+1. Log into MEXC → API Management
+2. Edit your API key
+3. **Disable IP Whitelist** (turn it OFF)
+4. Save changes
+
+**Why?** Railway IPs change on every deploy - whitelisting is not practical.
+
+See `MEXC_IP_WHITELIST_RAILWAY.md` for detailed instructions.
+
+### Step 4: Add Environment Variables
 
 In Railway dashboard → Variables tab, add:
 
@@ -44,28 +60,28 @@ PORT=8080
 - To enable demo mode (for testing), add: `DEMO_MODE=true`
 - **Important:** Configure your exchange API keys in the dashboard after deployment.
 
-### Step 4: Get Your URL
+### Step 5: Get Your URL
 
 Railway provides a URL like:
 ```
 https://your-app-name.up.railway.app
 ```
 
-### Step 5: Configure TradingView
+### Step 6: Configure TradingView
 
 In TradingView alert, set webhook URL to:
 ```
 https://your-app-name.up.railway.app/webhook
 ```
 
-### Step 6: Access Dashboard
+### Step 7: Access Dashboard
 
 Visit:
 ```
 https://your-app-name.up.railway.app
 ```
 
-### Step 7: Configure Exchange API Keys
+### Step 8: Configure Exchange API Keys
 
 1. **Open the dashboard** at your Railway URL
 2. **Click "Configure Exchange"** for MEXC

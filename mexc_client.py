@@ -149,11 +149,26 @@ class MEXCClient:
         try:
             if method.upper() == 'GET':
                 # For GET requests, params go in query string
-                # Log the full request URL and headers for debugging
-                full_url = f"{url}?{urlencode(params, doseq=False)}"
-                logger.info(f"🌐 Full request URL: {full_url[:150]}...")  # Truncate for security
+                # Build query string manually to ensure correct order: timestamp, signature, recvWindow
+                # MEXC may be sensitive to parameter order in URL
+                query_parts = []
+                if 'timestamp' in params:
+                    query_parts.append(f"timestamp={params['timestamp']}")
+                if 'signature' in params:
+                    query_parts.append(f"signature={params['signature']}")
+                if 'recvWindow' in params:
+                    query_parts.append(f"recvWindow={params['recvWindow']}")
+                # Add any other params (like subAccountId)
+                for key, value in sorted(params.items()):
+                    if key not in ['timestamp', 'signature', 'recvWindow']:
+                        query_parts.append(f"{key}={value}")
+                
+                full_url = f"{url}?{'&'.join(query_parts)}"
+                logger.info(f"🌐 Full request URL: {full_url[:200]}...")  # Show more for debugging
                 logger.info(f"📋 Request headers: X-MEXC-APIKEY={self.api_key[:6]}...{self.api_key[-4:]}")
-                response = self.session.get(url, params=params, headers=headers, timeout=10)
+                
+                # Use the manually built URL instead of params dict to ensure order
+                response = self.session.get(full_url, headers=headers, timeout=10)
             elif method.upper() == 'POST':
                 # For POST requests, check if params should be in body or query
                 # MEXC typically uses JSON body for POST

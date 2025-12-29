@@ -30,8 +30,9 @@ class MEXCClient:
             sub_account_id: Optional sub-account ID for sub-account trading
             use_sub_account: Whether to use sub-account for trading
         """
-        self.api_key = api_key
-        self.api_secret = api_secret
+        # Trim whitespace to prevent signature errors (common issue)
+        self.api_key = api_key.strip() if api_key else ''
+        self.api_secret = api_secret.strip() if api_secret else ''
         self.base_url = base_url.rstrip('/')
         self.sub_account_id = sub_account_id
         self.use_sub_account = use_sub_account

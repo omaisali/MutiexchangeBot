@@ -116,9 +116,10 @@ def create_exchange_clients(config: dict) -> dict:
         if not exchange_config.get('enabled', False):
             continue
         
-        api_key = exchange_config.get('api_key', '')
-        api_secret = exchange_config.get('api_secret', '')
-        base_url = exchange_config.get('base_url', '')
+        # Get and trim API credentials (whitespace can cause signature errors)
+        api_key = exchange_config.get('api_key', '').strip()
+        api_secret = exchange_config.get('api_secret', '').strip()
+        base_url = exchange_config.get('base_url', '').strip()
         
         if not api_key or not api_secret:
             logging.warning(f"{exchange_name} is enabled but missing API credentials")

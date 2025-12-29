@@ -132,12 +132,14 @@ class Dashboard:
                 exchange['enabled'] = bool(data['enabled'])
             
             if 'api_key' in data and data['api_key']:
-                exchange['api_key'] = data['api_key']
+                # Trim whitespace to prevent signature errors
+                exchange['api_key'] = data['api_key'].strip()
             
             if 'api_secret' in data and data['api_secret']:
                 # Only update if not masked
                 if data['api_secret'] != '***':
-                    exchange['api_secret'] = data['api_secret']
+                    # Trim whitespace to prevent signature errors
+                    exchange['api_secret'] = data['api_secret'].strip()
             
             if 'base_url' in data:
                 exchange['base_url'] = data['base_url']
@@ -275,9 +277,12 @@ class Dashboard:
                         if exchange_name == 'mexc':
                             from mexc_client import MEXCClient
                             try:
+                                # Trim whitespace to prevent signature errors
+                                api_key = exchange_config['api_key'].strip()
+                                api_secret = exchange_config['api_secret'].strip()
                                 client = MEXCClient(
-                                    api_key=exchange_config['api_key'],
-                                    api_secret=exchange_config['api_secret'],
+                                    api_key=api_key,
+                                    api_secret=api_secret,
                                     base_url=exchange_config.get('base_url', 'https://api.mexc.com'),
                                     sub_account_id=exchange_config.get('sub_account_id', ''),
                                     use_sub_account=exchange_config.get('use_sub_account', False)
@@ -320,9 +325,12 @@ class Dashboard:
             try:
                 if exchange_name == 'mexc':
                     from mexc_client import MEXCClient
+                    # Trim whitespace to prevent signature errors
+                    api_key = exchange['api_key'].strip()
+                    api_secret = exchange['api_secret'].strip()
                     client = MEXCClient(
-                        api_key=exchange['api_key'],
-                        api_secret=exchange['api_secret'],
+                        api_key=api_key,
+                        api_secret=api_secret,
                         base_url=exchange['base_url']
                     )
                     validation = client.validate_connection()

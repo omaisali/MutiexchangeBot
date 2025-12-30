@@ -480,26 +480,15 @@ class Dashboard:
         
         @self.app.route('/api/signals/recent', methods=['GET'])
         def recent_signals():
-            """Get recent signals (proxy to webhook handler)"""
-            # In demo mode, get signals directly from signal_monitor if available
-            if self.demo_mode.is_active() and hasattr(self, 'signal_monitor'):
+            """Get recent signals (use signal_monitor directly since webhook is integrated)"""
+            # Use signal_monitor directly since webhook routes are integrated into this Flask app
+            if hasattr(self, 'signal_monitor') and self.signal_monitor:
                 limit = request.args.get('limit', 10, type=int)
                 signals = self.signal_monitor.get_recent_signals(limit)
                 return jsonify({'signals': signals}), 200
             
-            try:
-                import requests
-                webhook_port = self.config['trading_settings'].get('webhook_port', 5000)
-                limit = request.args.get('limit', 10, type=int)
-                response = requests.get(f'http://localhost:{webhook_port}/api/signals/recent?limit={limit}', timeout=2)
-                if response.status_code == 200:
-                    return jsonify(response.json()), 200
-                else:
-                    # In demo mode, return empty if webhook not accessible (will be populated by demo signals)
-                    return jsonify({'signals': []}), 200
-            except Exception as e:
-                # In demo mode, return empty if webhook not accessible (will be populated by demo signals)
-                return jsonify({'signals': []}), 200
+            # Fallback if signal_monitor not available
+            return jsonify({'signals': []}), 200
     
     def run(self, host: str = '0.0.0.0', port: int = 8080, debug: bool = False):
         """

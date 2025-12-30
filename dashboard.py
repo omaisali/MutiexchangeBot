@@ -460,67 +460,23 @@ class Dashboard:
         
         @self.app.route('/api/signals/status', methods=['GET'])
         def signals_status():
-            """Get signal monitoring status (proxy to webhook handler)"""
-            # In demo mode, get status directly from signal_monitor if available
-            if self.demo_mode.is_active() and hasattr(self, 'signal_monitor') and self.signal_monitor:
+            """Get signal monitoring status (use signal_monitor directly since webhook is integrated)"""
+            # Use signal_monitor directly since webhook routes are integrated into this Flask app
+            if hasattr(self, 'signal_monitor') and self.signal_monitor:
                 status = self.signal_monitor.get_status()
-                # Ensure webhook shows as connected in demo mode
-                status['webhook_status'] = 'connected'
+                # If signals have been received, mark as connected
+                if status.get('total_signals', 0) > 0 or status.get('webhook_status') == 'connected':
+                    status['webhook_status'] = 'connected'
                 return jsonify(status), 200
             
-            try:
-                import requests
-                webhook_port = self.config['trading_settings'].get('webhook_port', 5000)
-                response = requests.get(f'http://localhost:{webhook_port}/api/signals/status', timeout=2)
-                if response.status_code == 200:
-                    status = response.json()
-                    # In demo mode, ensure webhook shows as connected
-                    if self.demo_mode.is_active() and status.get('webhook_status') != 'connected':
-                        status['webhook_status'] = 'connected'
-                    return jsonify(status), 200
-                else:
-                    # In demo mode, return demo status
-                    if self.demo_mode.is_active():
-                        if hasattr(self, 'signal_monitor') and self.signal_monitor:
-                            status = self.signal_monitor.get_status()
-                            status['webhook_status'] = 'connected'
-                            return jsonify(status), 200
-                        return jsonify({
-                            'webhook_status': 'connected',
-                            'last_signal_time': time.time(),
-                            'last_signal_datetime': datetime.now().isoformat(),
-                            'time_since_last_signal': 0,
-                            'total_signals': 10,
-                            'successful_trades': 10,
-                            'failed_trades': 0,
-                            'recent_signals_count': 10
-                        }), 200
-                    return jsonify({
-                        'webhook_status': 'disconnected',
-                        'error': 'Webhook server not responding'
-                    }), 200
-            except Exception as e:
-                # In demo mode, return demo status even if webhook is not accessible
-                if self.demo_mode.is_active():
-                    # Try to get from signal_monitor if available
-                    if hasattr(self, 'signal_monitor') and self.signal_monitor:
-                        status = self.signal_monitor.get_status()
-                        status['webhook_status'] = 'connected'
-                        return jsonify(status), 200
-                    return jsonify({
-                        'webhook_status': 'connected',
-                        'last_signal_time': time.time(),
-                        'last_signal_datetime': datetime.now().isoformat(),
-                        'time_since_last_signal': 0,
-                        'total_signals': 10,
-                        'successful_trades': 10,
-                        'failed_trades': 0,
-                        'recent_signals_count': 10
-                    }), 200
-                return jsonify({
-                    'webhook_status': 'disconnected',
-                    'error': 'Webhook server not available'
-                }), 200
+            # Fallback if signal_monitor not available
+            return jsonify({
+                'webhook_status': 'disconnected',
+                'total_signals': 0,
+                'successful_trades': 0,
+                'failed_trades': 0,
+                'error': 'Signal monitor not initialized'
+            }), 200
         
         @self.app.route('/api/signals/recent', methods=['GET'])
         def recent_signals():

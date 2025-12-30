@@ -567,6 +567,13 @@ async function updateStatus() {
 // Update signal status
 async function updateSignalStatus() {
     try {
+        // Ping health endpoint to mark webhook as active (this helps show connection status)
+        try {
+            await fetch('/health');
+        } catch (e) {
+            // Ignore health check errors, webhook might still be working
+        }
+        
         const response = await fetch('/api/signals/status');
         const status = await response.json();
         
@@ -586,10 +593,17 @@ async function updateSignalStatus() {
             webhookStatus.textContent = 'Connected';
             webhookStatus.className = 'status-value success';
         } else {
+            // Show "Waiting for signals" if no signals received yet (webhook is ready, just waiting)
             connectionDot.className = 'connection-dot disconnected';
-            statusText.textContent = 'Disconnected';
-            webhookStatus.textContent = 'Disconnected';
-            webhookStatus.className = 'status-value error';
+            if (status.total_signals === 0) {
+                statusText.textContent = 'Waiting for signals';
+                webhookStatus.textContent = 'Waiting for signals';
+                webhookStatus.className = 'status-value';
+            } else {
+                statusText.textContent = 'Disconnected';
+                webhookStatus.textContent = 'Disconnected';
+                webhookStatus.className = 'status-value error';
+            }
         }
         
         // Update last signal time

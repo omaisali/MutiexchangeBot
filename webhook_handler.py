@@ -95,7 +95,7 @@ class WebhookHandler:
                 demo = DemoMode()
                 if demo.is_active():
                     # Simulate trade execution
-                    price = float(signal_data.get('price', 0))
+                    price = float(signal_data.get('price', {}).get('close', 0) if isinstance(signal_data.get('price'), dict) else signal_data.get('price', 0))
                     symbol = signal_data.get('symbol', 'BTCUSDT')
                     side = signal_data.get('signal', 'BUY')
                     # Estimate quantity based on typical position size
@@ -111,12 +111,16 @@ class WebhookHandler:
                         'demo': True
                     }), 200
                 
-                error_msg = 'No trading executor available'
-                self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
+                # No executor and demo mode not active: Still accept and log the signal
+                # This allows testing webhook connectivity even without trading setup
+                logger.info(f"📥 Signal received (no executor): {signal_data.get('symbol')} {signal_data.get('signal')} @ {signal_data.get('price', {}).get('close', 'N/A') if isinstance(signal_data.get('price'), dict) else signal_data.get('price', 'N/A')}")
+                self.signal_monitor.add_signal(signal_data, executed=False, error='No trading executor configured')
                 return jsonify({
-                    'status': 'error',
-                    'message': error_msg
-                }), 500
+                    'status': 'received',
+                    'message': 'Signal received successfully. Configure exchange API keys to execute trades.',
+                    'signal': signal_data,
+                    'note': 'No trading executor available - signal logged only'
+                }), 200
                 
         except Exception as e:
             logger.error(f"Webhook error: {e}", exc_info=True)

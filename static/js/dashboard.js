@@ -133,9 +133,20 @@ document.addEventListener('DOMContentLoaded', function() {
 // Load dashboard data
 async function loadDashboard() {
     try {
+        console.log('Loading dashboard configuration...');
+        
         // Load exchanges
         const exchangesResponse = await fetch('/api/exchanges');
+        if (!exchangesResponse.ok) {
+            throw new Error(`Failed to load exchanges: ${exchangesResponse.statusText}`);
+        }
         const exchanges = await exchangesResponse.json();
+        console.log('Loaded exchanges:', Object.keys(exchanges));
+        
+        // Verify API keys are loaded
+        for (const [name, exchange] of Object.entries(exchanges)) {
+            console.log(`${name}: enabled=${exchange.enabled}, api_key_length=${(exchange.api_key || '').length}, has_secret=${!!exchange.api_secret}`);
+        }
         
         // Load trading settings
         const tradingSettingsResponse = await fetch('/api/trading-settings');
@@ -162,6 +173,8 @@ async function loadDashboard() {
         // Load initial signal status
         updateSignalStatus();
         updateRecentSignals();
+        
+        console.log('Dashboard configuration loaded successfully');
         
     } catch (error) {
         console.error('Error loading dashboard:', error);

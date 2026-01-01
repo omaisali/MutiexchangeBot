@@ -43,8 +43,31 @@ class Dashboard:
         # Setup routes
         self._setup_routes()
     
+    def _deep_merge(self, default: dict, loaded: dict) -> dict:
+        """
+        Deep merge loaded config into default config
+        
+        Args:
+            default: Default configuration dictionary
+            loaded: Loaded configuration dictionary
+            
+        Returns:
+            Merged configuration dictionary
+        """
+        result = default.copy()
+        
+        for key, value in loaded.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # Recursively merge nested dictionaries
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                # Overwrite with loaded value
+                result[key] = value
+        
+        return result
+    
     def _load_config(self) -> dict:
-        """Load configuration from file"""
+        """Load configuration from file with proper deep merge"""
         default_config = {
             'exchanges': {
                 'mexc': {
@@ -83,22 +106,52 @@ class Dashboard:
             try:
                 with open(self.config_file, 'r') as f:
                     loaded_config = json.load(f)
-                    # Merge with defaults
-                    default_config.update(loaded_config)
+                    # Deep merge to preserve all saved values
+                    default_config = self._deep_merge(default_config, loaded_config)
+                    logger.info(f"✅ Configuration loaded from {self.config_file}")
+                    # Log loaded exchanges for debugging
+                    for exchange_name, exchange_config in default_config.get('exchanges', {}).items():
+                        has_key = bool(exchange_config.get('api_key'))
+                        has_secret = bool(exchange_config.get('api_secret'))
+                        enabled = exchange_config.get('enabled', False)
+                        logger.info(f"   {exchange_name}: enabled={enabled}, has_key={has_key}, has_secret={has_secret}")
             except Exception as e:
-                logger.error(f"Error loading config: {e}")
+                logger.error(f"Error loading config: {e}", exc_info=True)
+        else:
+            logger.info(f"Config file {self.config_file} not found, using defaults")
         
         return default_config
     
     def _save_config(self):
         """Save configuration to file"""
         try:
-            with open(self.config_file, 'w') as f:
+            # Ensure directory exists
+            config_dir = os.path.dirname(os.path.abspath(self.config_file))
+            if config_dir and not os.path.exists(config_dir):
+                os.makedirs(config_dir, exist_ok=True)
+            
+            # Save with atomic write (write to temp file, then rename)
+            temp_file = f"{self.config_file}.tmp"
+            with open(temp_file, 'w') as f:
                 json.dump(self.config, f, indent=2)
-            logger.info("Configuration saved successfully")
+            
+            # Atomic rename
+            if os.path.exists(temp_file):
+                if os.path.exists(self.config_file):
+                    os.replace(temp_file, self.config_file)
+                else:
+                    os.rename(temp_file, self.config_file)
+            
+            logger.info(f"✅ Configuration saved successfully to {self.config_file}")
+            # Log saved exchanges for verification
+            for exchange_name, exchange_config in self.config.get('exchanges', {}).items():
+                has_key = bool(exchange_config.get('api_key'))
+                has_secret = bool(exchange_config.get('api_secret'))
+                enabled = exchange_config.get('enabled', False)
+                logger.info(f"   {exchange_name}: enabled={enabled}, has_key={has_key}, has_secret={has_secret}")
             return True
         except Exception as e:
-            logger.error(f"Error saving config: {e}")
+            logger.error(f"❌ Error saving config: {e}", exc_info=True)
             return False
     
     def _setup_routes(self):

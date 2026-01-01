@@ -462,24 +462,24 @@ all_indicators_aligned_sell = enable_strategy and
 // 2. All three indicators are still fully aligned on current bar
 // 3. Signal hasn't been triggered already (prevents duplicates)
 // Entry occurs on NEXT candle open (after conditions met on previous closed candle)
-// Note: alertcondition requires const strings, so we use static messages
-// The actual JSON payload is built in the alert message template using {{message}} variable
+// IMPORTANT: TradingView sends the message as-is. If it's valid JSON, it uses "application/json" content-type.
+// We build the full JSON payload here so TradingView sends it correctly to the webhook.
 alertcondition(strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy, 
      title="Strategy Buy Signal (JSON)", 
-     message="BUY")
+     message=build_json_payload("BUY"))
 
 alertcondition(strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell, 
      title="Strategy Sell Signal (JSON)", 
-     message="SELL")
+     message=build_json_payload("SELL"))
 
 // Alternative: Pipe-delimited format alerts (for backward compatibility)
 alertcondition(strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy, 
      title="Strategy Buy Signal (Webhook)", 
-     message="BUY")
+     message=build_webhook_message("BUY"))
 
 alertcondition(strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell, 
      title="Strategy Sell Signal (Webhook)", 
-     message="SELL")
+     message=build_webhook_message("SELL"))
 
 // ============================================================================
 // TABLE DISPLAY (Optional - shows current values)

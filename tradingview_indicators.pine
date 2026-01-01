@@ -1,4 +1,4 @@
-//@version=5
+//@version=6
 indicator("WT + Ideal BB + RSI", shorttitle="WT+BB+RSI", overlay=false)
 
 // ============================================================================
@@ -464,22 +464,24 @@ all_indicators_aligned_sell = enable_strategy and
 // Entry occurs on NEXT candle open (after conditions met on previous closed candle)
 // IMPORTANT: TradingView sends the message as-is. If it's valid JSON, it uses "application/json" content-type.
 // We build the full JSON payload here so TradingView sends it correctly to the webhook.
-alertcondition(strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy, 
-     title="Strategy Buy Signal (JSON)", 
-     message=build_json_payload("BUY"))
+// alertcondition(strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy, 
+//      title="Strategy Buy Signal (JSON)", 
+//      message=build_json_payload("BUY"))
 
-alertcondition(strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell, 
-     title="Strategy Sell Signal (JSON)", 
-     message=build_json_payload("SELL"))
+// alertcondition(strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell, 
+//      title="Strategy Sell Signal (JSON)", 
+//      message=build_json_payload("SELL"))
 
 // Alternative: Pipe-delimited format alerts (for backward compatibility)
-alertcondition(strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy, 
-     title="Strategy Buy Signal (Webhook)", 
-     message=build_webhook_message("BUY"))
+// Fire alerts on confirmed bar only (bar close), to match your "closed candle + next candle entry" logic
+buy_fire  = barstate.isconfirmed and strategy_buy_signal and not strategy_buy_triggered[1] and all_indicators_aligned_buy
+sell_fire = barstate.isconfirmed and strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell
 
-alertcondition(strategy_sell_signal and not strategy_sell_triggered[1] and all_indicators_aligned_sell, 
-     title="Strategy Sell Signal (Webhook)", 
-     message=build_webhook_message("SELL"))
+if buy_fire
+    alert(build_json_payload("BUY"), alert.freq_once_per_bar_close)
+
+if sell_fire
+    alert(build_json_payload("SELL"), alert.freq_once_per_bar_close)
 
 // ============================================================================
 // TABLE DISPLAY (Optional - shows current values)

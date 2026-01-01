@@ -187,6 +187,15 @@ async function renderExchanges() {
     const list = document.getElementById('exchangesList');
     list.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted);">Loading exchanges...</div>';
     
+    // Ensure config.exchanges exists
+    if (!config || !config.exchanges) {
+        console.error('Config or exchanges not loaded');
+        list.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--error);">Error: Exchanges configuration not loaded</div>';
+        return;
+    }
+    
+    console.log('Rendering exchanges:', Object.keys(config.exchanges));
+    
     // Fetch exchange status (connection + balances)
     let exchangeStatus = {};
     try {
@@ -203,6 +212,11 @@ async function renderExchanges() {
     // Show all configured exchanges
     Object.entries(config.exchanges)
         .forEach(([key, exchange]) => {
+            console.log(`Rendering exchange ${key}:`, {
+                enabled: exchange.enabled,
+                has_key: !!(exchange.api_key),
+                has_secret: !!(exchange.api_secret)
+            });
         const item = document.createElement('div');
         item.className = `exchange-item ${exchange.enabled ? 'enabled' : ''}`;
         

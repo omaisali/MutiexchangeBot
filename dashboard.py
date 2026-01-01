@@ -544,11 +544,13 @@ class Dashboard:
         
         @self.app.route('/api/signals/recent', methods=['GET'])
         def recent_signals():
-            """Get recent signals (use signal_monitor directly since webhook is integrated)"""
+            """Get recent signals from the last 24 hours (use signal_monitor directly since webhook is integrated)"""
             # Use signal_monitor directly since webhook routes are integrated into this Flask app
             if hasattr(self, 'signal_monitor') and self.signal_monitor:
-                limit = request.args.get('limit', 10, type=int)
-                signals = self.signal_monitor.get_recent_signals(limit)
+                limit = request.args.get('limit', 100, type=int)  # Increased default limit to show more signals
+                hours = request.args.get('hours', 24.0, type=float)  # Default: last 24 hours
+                # Get signals from last 24 hours (or specified hours)
+                signals = self.signal_monitor.get_recent_signals(limit=limit, hours=hours)
                 return jsonify({'signals': signals}), 200
             
             # Fallback if signal_monitor not available

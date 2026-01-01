@@ -1,10 +1,11 @@
 """
 Signal Monitor
 Tracks TradingView webhook signals and connection status
+Keeps signals for at least 1 day (24 hours)
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from collections import deque
 import threading
@@ -12,14 +13,17 @@ import threading
 class SignalMonitor:
     """Monitors TradingView webhook signals"""
     
-    def __init__(self, max_signals: int = 100):
+    def __init__(self, max_signals: int = 1000, retention_hours: float = 24.0):
         """
         Initialize Signal Monitor
         
         Args:
-            max_signals: Maximum number of signals to keep in history
+            max_signals: Maximum number of signals to keep in history (safety limit)
+            retention_hours: Number of hours to keep signals (default: 24 hours = 1 day)
         """
         self.max_signals = max_signals
+        self.retention_hours = retention_hours
+        self.retention_seconds = retention_hours * 3600  # Convert hours to seconds
         self.signals = deque(maxlen=max_signals)
         self.last_signal_time = None
         self.last_signal_data = None
@@ -68,18 +72,52 @@ class SignalMonitor:
             elif error:
                 self.failed_trades += 1
     
-    def get_recent_signals(self, limit: int = 10) -> List[Dict]:
+    def _cleanup_old_signals(self):
+        """Remove signals older than retention period"""
+        current_time = time.time()
+        cutoff_time = current_time - self.retention_seconds
+        
+        # Remove signals older than retention period
+        while self.signals and self.signals[0]['timestamp'] < cutoff_time:
+            self.signals.popleft()
+    
+    def get_recent_signals(self, limit: int = 10, hours: Optional[float] = None) -> List[Dict]:
         """
-        Get recent signals
+        Get recent signals from the last 24 hours (or specified hours)
         
         Args:
-            limit: Number of recent signals to return
+            limit: Maximum number of signals to return (default: 10, use None for all)
+            hours: Number of hours to look back (default: uses retention_hours, typically 24)
             
         Returns:
-            List of recent signal records
+            List of recent signal records from the last 24 hours
         """
         with self.lock:
-            return list(self.signals)[-limit:]
+            # Clean up old signals first
+            self._cleanup_old_signals()
+            
+            # Determine time cutoff
+            current_time = time.time()
+            if hours is not None:
+                cutoff_time = current_time - (hours * 3600)
+            else:
+                # Use retention period (default 24 hours)
+                cutoff_time = current_time - self.retention_seconds
+            
+            # Filter signals from the last 24 hours (or specified period)
+            recent_signals = [
+                signal for signal in self.signals
+                if signal['timestamp'] >= cutoff_time
+            ]
+            
+            # Sort by timestamp (newest first)
+            recent_signals.sort(key=lambda x: x['timestamp'], reverse=True)
+            
+            # Apply limit if specified
+            if limit is not None and limit > 0:
+                return recent_signals[:limit]
+            
+            return recent_signals
     
     def get_status(self) -> Dict:
         """
@@ -99,6 +137,14 @@ class SignalMonitor:
                 if ping_age > 300:  # 5 minutes
                     webhook_status = 'disconnected'
             
+            # Clean up old signals before reporting count
+            self._cleanup_old_signals()
+            
+            # Count signals from last 24 hours
+            current_time = time.time()
+            cutoff_time = current_time - self.retention_seconds
+            recent_count = sum(1 for s in self.signals if s['timestamp'] >= cutoff_time)
+            
             return {
                 'webhook_status': webhook_status,
                 'last_signal_time': self.last_signal_time,
@@ -107,7 +153,9 @@ class SignalMonitor:
                 'total_signals': self.total_signals,
                 'successful_trades': self.successful_trades,
                 'failed_trades': self.failed_trades,
-                'recent_signals_count': len(self.signals),
+                'recent_signals_count': recent_count,
+                'total_stored_signals': len(self.signals),
+                'retention_hours': self.retention_hours,
                 'last_signal': self.last_signal_data
             }
     

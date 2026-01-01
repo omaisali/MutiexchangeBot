@@ -645,10 +645,11 @@ async function updateSignalStatus() {
     }
 }
 
-// Update recent signals
+// Update recent signals (from last 24 hours)
 async function updateRecentSignals() {
     try {
-        const response = await fetch('/api/signals/recent?limit=10');
+        // Get signals from last 24 hours, limit to 100 for display
+        const response = await fetch('/api/signals/recent?limit=100&hours=24');
         const data = await response.json();
         const signals = data.signals || [];
         

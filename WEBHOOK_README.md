@@ -245,3 +245,5 @@ A SELL signal is generated when ALL of the following conditions are met:
 
 
 
+
+

@@ -56,6 +56,14 @@ class Dashboard:
                     'paper_trading': False,
                     'sub_account_id': '',  # Optional sub-account ID
                     'use_sub_account': False
+                },
+                'alpaca': {
+                    'enabled': False,
+                    'api_key': '',
+                    'api_secret': '',
+                    'base_url': 'https://paper-api.alpaca.markets',
+                    'name': 'Alpaca',
+                    'paper_trading': True
                 }
             },
             'trading_settings': {
@@ -290,10 +298,8 @@ class Dashboard:
                 }
                 return jsonify(status)
             
-            # Filter out Alpaca (removed from supported exchanges)
+            # Check all configured exchanges
             for exchange_name, exchange_config in self.config['exchanges'].items():
-                if exchange_name == 'alpaca':
-                    continue  # Skip Alpaca
                 exchange_status = {
                     'name': exchange_config.get('name', exchange_name),
                     'enabled': exchange_config.get('enabled', False),
@@ -332,6 +338,33 @@ class Dashboard:
                                 # Don't set error message - UI will just show "Not connected"
                             except Exception as e:
                                 logger.error(f"Error validating MEXC connection: {e}", exc_info=True)
+                                exchange_status['connected'] = False
+                                # Don't set error message - UI will just show "Not connected"
+                        elif exchange_name == 'alpaca':
+                            from alpaca_client import AlpacaClient
+                            try:
+                                # Trim whitespace to prevent errors
+                                api_key = exchange_config['api_key'].strip()
+                                api_secret = exchange_config['api_secret'].strip()
+                                client = AlpacaClient(
+                                    api_key=api_key,
+                                    api_secret=api_secret,
+                                    base_url=exchange_config.get('base_url', 'https://paper-api.alpaca.markets')
+                                )
+                                validation = client.validate_connection()
+                                exchange_status['connected'] = validation['connected']
+                                exchange_status['can_trade'] = validation['can_trade']
+                                if validation['connected']:
+                                    # Always fetch and return balances (even if empty/zero)
+                                    balances = client.get_main_balances()
+                                    exchange_status['balances'] = balances  # Will be {} if all zero
+                                    logger.info(f"✅ {exchange_name} connected - Balances: {len(balances)} assets")
+                                else:
+                                    # Not connected, set balances to null (not empty object)
+                                    exchange_status['balances'] = None
+                                # Don't set error message - UI will just show "Not connected"
+                            except Exception as e:
+                                logger.error(f"Error validating Alpaca connection: {e}", exc_info=True)
                                 exchange_status['connected'] = False
                                 # Don't set error message - UI will just show "Not connected"
                         else:
@@ -391,6 +424,37 @@ class Dashboard:
                             'status': 'error',
                             'error': validation.get('error', 'Connection failed')
                         }), 500
+                elif exchange_name == 'alpaca':
+                    from alpaca_client import AlpacaClient
+                    # Trim whitespace to prevent errors
+                    api_key = exchange['api_key'].strip()
+                    api_secret = exchange['api_secret'].strip()
+                    
+                    # Log keys being used for testing (masked)
+                    masked_key = f"{api_key[:6]}...{api_key[-4:]}" if len(api_key) > 10 else "***"
+                    masked_secret = f"{api_secret[:6]}...{api_secret[-4:]}" if len(api_secret) > 10 else "***"
+                    logger.info(f"🧪 Testing {exchange_name} connection with:")
+                    logger.info(f"   API Key: {masked_key} (length: {len(api_key)})")
+                    logger.info(f"   API Secret: {masked_secret} (length: {len(api_secret)})")
+                    
+                    client = AlpacaClient(
+                        api_key=api_key,
+                        api_secret=api_secret,
+                        base_url=exchange.get('base_url', 'https://paper-api.alpaca.markets')
+                    )
+                    validation = client.validate_connection()
+                    if validation['connected']:
+                        return jsonify({
+                            'status': 'success',
+                            'message': 'Connection successful',
+                            'can_trade': validation['can_trade'],
+                            'balances': client.get_main_balances()
+                        })
+                    else:
+                        return jsonify({
+                            'status': 'error',
+                            'error': validation.get('error', 'Connection failed')
+                        }), 500
                 else:
                     return jsonify({'error': 'Exchange not supported'}), 400
                     
@@ -416,12 +480,12 @@ class Dashboard:
             
             enabled_exchanges = [
                 name for name, config in self.config['exchanges'].items()
-                if config.get('enabled', False) and name != 'alpaca'
+                if config.get('enabled', False)
             ]
             
             return jsonify({
                 'exchanges_enabled': enabled_exchanges,
-                'total_exchanges': len([k for k in self.config['exchanges'].keys() if k != 'alpaca']),
+                'total_exchanges': len(self.config['exchanges']),
                 'position_size': self.config['trading_settings'].get('position_size_percent', 0),
                 'demo_mode': False
             })

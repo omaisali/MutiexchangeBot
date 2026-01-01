@@ -185,3 +185,4 @@ If using Zapier (free tier):
 
 This allows free TradingView accounts to use webhooks indirectly.
 
+

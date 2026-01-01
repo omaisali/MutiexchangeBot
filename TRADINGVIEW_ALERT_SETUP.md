@@ -222,3 +222,4 @@ Both can use the same webhook URL. The server will automatically detect the sign
 3. Test webhook endpoint with cURL
 4. Check dashboard for signal status and recent signals
 
+

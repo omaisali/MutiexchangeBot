@@ -1,13 +1,13 @@
 """
 Trading Executor
 Handles order execution, position management, and risk management
+Supports multiple exchanges (MEXC, Alpaca, etc.)
 """
 
 import logging
 import threading
 import time
-from typing import Dict, Optional
-from mexc_client import MEXCClient
+from typing import Dict, Optional, Union
 from position_manager import PositionManager
 from tp_sl_manager import TPSLManager
 from stop_loss_monitor import StopLossMonitor
@@ -18,15 +18,17 @@ logger = logging.getLogger(__name__)
 class TradingExecutor:
     """Handles trading execution with risk management"""
     
-    def __init__(self, mexc_client: MEXCClient, config: Dict):
+    def __init__(self, exchange_client: Union[object], config: Dict, exchange_name: str = 'mexc'):
         """
         Initialize Trading Executor
         
         Args:
-            mexc_client: MEXC API client instance
+            exchange_client: Exchange API client instance (MEXCClient, AlpacaClient, etc.)
             config: Configuration dictionary
+            exchange_name: Name of the exchange ('mexc', 'alpaca', etc.)
         """
-        self.client = mexc_client
+        self.client = exchange_client
+        self.exchange_name = exchange_name.lower()
         self.config = config
         # Ensure position size is between 20-100%
         position_size = float(config.get('POSITION_SIZE_PERCENT', 20.0))
@@ -35,12 +37,12 @@ class TradingExecutor:
         self.use_percentage = config.get('USE_PERCENTAGE', 'true').lower() == 'true'
         
         # Initialize position and TP/SL managers
-        self.position_manager = PositionManager(mexc_client)
+        self.position_manager = PositionManager(exchange_client, exchange_name)
         stop_loss_percent = float(config.get('STOP_LOSS_PERCENT', 5.0))
-        self.tp_sl_manager = TPSLManager(mexc_client, self.position_manager, stop_loss_percent)
+        self.tp_sl_manager = TPSLManager(exchange_client, self.position_manager, stop_loss_percent, exchange_name)
         
-        # Initialize stop-loss monitor (for Spot trading - MEXC Spot doesn't support stop-loss orders)
-        self.stop_loss_monitor = StopLossMonitor(mexc_client, self.position_manager)
+        # Initialize stop-loss monitor (exchange-specific)
+        self.stop_loss_monitor = StopLossMonitor(exchange_client, self.position_manager, exchange_name)
         self.stop_loss_monitor.start_monitoring()
         
         # Store reference in tp_sl_manager for price updates
@@ -50,8 +52,12 @@ class TradingExecutor:
         self.monitoring_active = True
         self.monitor_thread = threading.Thread(target=self._monitor_positions, daemon=True)
         self.monitor_thread.start()
-        logger.info("Position monitoring thread started")
-        logger.warning("⚠️  MEXC Spot API doesn't support stop-loss orders. Using price monitoring system.")
+        logger.info(f"Position monitoring thread started for {exchange_name}")
+        
+        if self.exchange_name == 'mexc':
+            logger.warning("⚠️  MEXC Spot API doesn't support stop-loss orders. Using price monitoring system.")
+        elif self.exchange_name == 'alpaca':
+            logger.info("✅ Alpaca supports native stop-loss orders via API")
         
     def calculate_position_size(self, symbol: str, signal_price: float) -> float:
         """
@@ -62,29 +68,49 @@ class TradingExecutor:
             signal_price: Current price of the asset
             
         Returns:
-            Position size in quote currency (e.g., USDT)
+            Position size in quote currency (e.g., USDT or USD)
         """
         if self.use_percentage:
             # Get account balance
             try:
-                account = self.client.get_account_info()
-                balances = account.get('balances', [])
-                
-                # Find USDT balance (or quote currency)
-                quote_currency = symbol.replace('USDT', '').replace('BTC', '').replace('ETH', '')[-4:] or 'USDT'
-                if not quote_currency.endswith('USDT') and 'USDT' in symbol:
-                    quote_currency = 'USDT'
-                
-                usdt_balance = 0.0
-                for balance in balances:
-                    if balance['asset'] == quote_currency:
-                        usdt_balance = float(balance.get('free', 0))
-                        break
-                
-                # Calculate position size as percentage
-                position_size = usdt_balance * (self.position_size_percent / 100.0)
-                logger.info(f"Position size: {position_size} {quote_currency} ({self.position_size_percent}% of {usdt_balance})")
-                return position_size
+                if self.exchange_name == 'mexc':
+                    account = self.client.get_account_info()
+                    balances = account.get('balances', [])
+                    
+                    # Find USDT balance (or quote currency)
+                    quote_currency = symbol.replace('USDT', '').replace('BTC', '').replace('ETH', '')[-4:] or 'USDT'
+                    if not quote_currency.endswith('USDT') and 'USDT' in symbol:
+                        quote_currency = 'USDT'
+                    
+                    usdt_balance = 0.0
+                    for balance in balances:
+                        if balance['asset'] == quote_currency:
+                            usdt_balance = float(balance.get('free', 0))
+                            break
+                    
+                    # Calculate position size as percentage
+                    position_size = usdt_balance * (self.position_size_percent / 100.0)
+                    logger.info(f"Position size: {position_size} {quote_currency} ({self.position_size_percent}% of {usdt_balance})")
+                    return position_size
+                    
+                elif self.exchange_name == 'alpaca':
+                    # Alpaca uses USD as quote currency
+                    account = self.client.get_account_info()
+                    cash = float(account.get('cash', 0))
+                    
+                    # Calculate position size as percentage
+                    position_size = cash * (self.position_size_percent / 100.0)
+                    logger.info(f"Position size: {position_size} USD ({self.position_size_percent}% of {cash})")
+                    return position_size
+                else:
+                    # Generic fallback
+                    balances = self.client.get_main_balances()
+                    quote_currency = 'USDT' if 'USDT' in symbol else 'USD'
+                    balance = balances.get(quote_currency, {})
+                    balance_value = float(balance.get('free', 0) or balance.get('total', 0))
+                    position_size = balance_value * (self.position_size_percent / 100.0)
+                    logger.info(f"Position size: {position_size} {quote_currency} ({self.position_size_percent}% of {balance_value})")
+                    return position_size
                 
             except Exception as e:
                 logger.error(f"Error calculating position size: {e}")
@@ -149,26 +175,42 @@ class TradingExecutor:
                 return None
             
             # Place market buy order
-            logger.info(f"Executing BUY order: {symbol}, Size: {position_size_usdt} USDT")
+            quote_currency = 'USD' if self.exchange_name == 'alpaca' else 'USDT'
+            logger.info(f"Executing BUY order: {symbol}, Size: {position_size_usdt} {quote_currency}")
             order_response = self.client.place_market_buy(symbol, position_size_usdt)
             
-            if not order_response or 'orderId' not in order_response:
-                logger.error(f"Failed to place BUY order: {order_response}")
+            # Handle different exchange order ID formats
+            order_id = None
+            if 'orderId' in order_response:  # MEXC format
+                order_id = str(order_response['orderId'])
+            elif 'id' in order_response:  # Alpaca format
+                order_id = str(order_response['id'])
+            elif 'order_id' in order_response:
+                order_id = str(order_response['order_id'])
+            
+            if not order_id:
+                logger.error(f"Failed to get order ID from response: {order_response}")
                 return None
             
-            order_id = str(order_response['orderId'])
             logger.info(f"BUY order placed successfully: {order_id}")
             
             # Wait a moment for order to fill, then get filled quantity
             time.sleep(1)
             filled_order = self.client.get_order_status(symbol, order_id)
             
-            if filled_order.get('status') != 'FILLED':
-                logger.warning(f"Order {order_id} not yet filled, status: {filled_order.get('status')}")
-                # Try to get executed quantity
+            # Handle different exchange status formats
+            status = filled_order.get('status', '').upper()
+            if status not in ['FILLED', 'FILL']:
+                logger.warning(f"Order {order_id} not yet filled, status: {status}")
+            
+            # Get executed quantity (different field names per exchange)
+            executed_qty = 0.0
+            if 'executedQty' in filled_order:  # MEXC
                 executed_qty = float(filled_order.get('executedQty', 0))
-            else:
-                executed_qty = float(filled_order.get('executedQty', 0))
+            elif 'filled_qty' in filled_order:  # Alpaca
+                executed_qty = float(filled_order.get('filled_qty', 0))
+            elif 'qty' in filled_order and status in ['FILLED', 'FILL']:  # Alpaca filled
+                executed_qty = float(filled_order.get('qty', 0))
             
             if executed_qty <= 0:
                 logger.error("No quantity executed")
@@ -177,8 +219,12 @@ class TradingExecutor:
             # Calculate actual entry price from filled order
             if 'price' in filled_order and filled_order['price']:
                 entry_price = float(filled_order['price'])
-            elif 'cummulativeQuoteQty' in filled_order and executed_qty > 0:
+            elif 'filled_avg_price' in filled_order:  # Alpaca
+                entry_price = float(filled_order.get('filled_avg_price', 0))
+            elif 'cummulativeQuoteQty' in filled_order and executed_qty > 0:  # MEXC
                 entry_price = float(filled_order['cummulativeQuoteQty']) / executed_qty
+            elif 'notional' in filled_order and executed_qty > 0:  # Alpaca notional
+                entry_price = float(filled_order.get('notional', 0)) / executed_qty
             
             # Create position record
             position = self.position_manager.create_position(
@@ -237,12 +283,24 @@ class TradingExecutor:
         """
         try:
             # Get account balance for base currency
-            base_currency = symbol.replace('USDT', '').replace('BTC', '').replace('ETH', '')
-            if 'USDT' in symbol:
-                base_currency = symbol.split('USDT')[0]
-            
-            balance = self.client.get_balance(base_currency)
-            available_quantity = float(balance.get('free', 0))
+            if self.exchange_name == 'alpaca':
+                # Alpaca uses symbol without suffix
+                base_currency = symbol.replace('USDT', '').replace('USD', '')
+                # Get position or balance
+                position = self.client.get_position(symbol)
+                if position:
+                    available_quantity = float(position.get('qty', 0))
+                else:
+                    balance = self.client.get_balance(base_currency)
+                    available_quantity = float(balance.get('free', 0) or balance.get('total', 0))
+            else:
+                # MEXC and others
+                base_currency = symbol.replace('USDT', '').replace('BTC', '').replace('ETH', '')
+                if 'USDT' in symbol:
+                    base_currency = symbol.split('USDT')[0]
+                
+                balance = self.client.get_balance(base_currency)
+                available_quantity = float(balance.get('free', 0))
             
             if available_quantity <= 0:
                 logger.warning(f"No {base_currency} available to sell")
@@ -344,7 +402,9 @@ class TradingExecutor:
             try:
                 order_status = self.client.get_order_status(symbol, tp_order_id)
                 
-                if order_status.get('status') == 'FILLED':
+                # Handle different exchange status formats
+                status = order_status.get('status', '').upper()
+                if status in ['FILLED', 'FILL']:
                     logger.info(f"✅ {tp_level.upper()} FILLED for {symbol}")
                     self.position_manager.mark_tp_hit(symbol, tp_level)
                     

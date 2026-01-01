@@ -149,3 +149,4 @@ Message: BUY (or leave empty)
 3. Verify indicator is loaded and compiled without errors
 4. Test webhook endpoint with cURL
 
+

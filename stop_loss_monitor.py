@@ -2,13 +2,13 @@
 Stop Loss Monitor
 Monitors price and executes stop-loss orders for Spot trading
 Since MEXC Spot API doesn't support stop-loss orders, we monitor price and execute market orders
+Alpaca supports native stop-loss orders, but we still monitor for safety
 """
 
 import logging
 import threading
 import time
-from typing import Dict, Optional
-from mexc_client import MEXCClient
+from typing import Dict, Optional, Union
 from position_manager import PositionManager
 
 logger = logging.getLogger(__name__)
@@ -17,16 +17,19 @@ logger = logging.getLogger(__name__)
 class StopLossMonitor:
     """Monitors price and executes stop-loss for Spot trading"""
     
-    def __init__(self, mexc_client: MEXCClient, position_manager: PositionManager):
+    def __init__(self, exchange_client: Union[object], position_manager: PositionManager, 
+                 exchange_name: str = 'mexc'):
         """
         Initialize Stop Loss Monitor
         
         Args:
-            mexc_client: MEXC API client
+            exchange_client: Exchange API client instance (MEXCClient, AlpacaClient, etc.)
             position_manager: Position manager instance
+            exchange_name: Name of the exchange ('mexc', 'alpaca', etc.)
         """
-        self.client = mexc_client
+        self.client = exchange_client
         self.position_manager = position_manager
+        self.exchange_name = exchange_name.lower()
         self.monitoring_active = True
         self.monitor_thread = None
         self.check_interval = 2  # Check every 2 seconds

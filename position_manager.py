@@ -1,12 +1,12 @@
 """
 Position Manager
 Manages open positions, take-profit levels, and stop-loss orders
+Supports multiple exchanges
 """
 
 import logging
 import time
-from typing import Dict, Optional, List
-from mexc_client import MEXCClient
+from typing import Dict, Optional, List, Union
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +14,16 @@ logger = logging.getLogger(__name__)
 class PositionManager:
     """Manages trading positions, TP levels, and stop-loss"""
     
-    def __init__(self, mexc_client: MEXCClient):
+    def __init__(self, exchange_client: Union[object], exchange_name: str = 'mexc'):
         """
         Initialize Position Manager
         
         Args:
-            mexc_client: MEXC API client instance
+            exchange_client: Exchange API client instance (MEXCClient, AlpacaClient, etc.)
+            exchange_name: Name of the exchange ('mexc', 'alpaca', etc.)
         """
-        self.client = mexc_client
+        self.client = exchange_client
+        self.exchange_name = exchange_name.lower()
         self.active_positions = {}  # symbol -> position_data
         
     def create_position(self, symbol: str, entry_price: float, side: str, 

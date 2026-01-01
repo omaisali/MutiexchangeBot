@@ -135,6 +135,7 @@ def create_exchange_clients(config: dict) -> dict:
         
         try:
             if exchange_name == 'mexc':
+                from mexc_client import MEXCClient
                 sub_account_id = exchange_config.get('sub_account_id', '')
                 use_sub_account = exchange_config.get('use_sub_account', False)
                 
@@ -173,6 +174,43 @@ def create_exchange_clients(config: dict) -> dict:
                         logging.info(f"MEXC client initialized with sub-account: {sub_account_id}")
                     else:
                         logging.info(f"MEXC client initialized (main account)")
+                else:
+                    error_msg = validation.get('error', 'Unknown error')
+                    logging.error(f"❌ {exchange_name} connection failed: {error_msg}")
+                    logging.warning(f"{exchange_name} will not be available for trading")
+                    
+            elif exchange_name == 'alpaca':
+                from alpaca_client import AlpacaClient
+                
+                client = AlpacaClient(
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    base_url=base_url
+                )
+                
+                # Validate connection
+                logging.info(f"Validating {exchange_name} connection...")
+                validation = client.validate_connection()
+                
+                if validation['connected']:
+                    logging.info(f"✅ {exchange_name} connected successfully")
+                    if validation['can_trade']:
+                        logging.info(f"✅ {exchange_name} has trading permissions")
+                    else:
+                        logging.warning(f"⚠️  {exchange_name} connected but no trading permissions")
+                    
+                    # Log main balances
+                    balances = client.get_main_balances()
+                    if balances:
+                        balance_str = ', '.join([f"{asset}: {bal['total']:.2f}" 
+                                               for asset, bal in balances.items() if bal['total'] > 0.01])
+                        if balance_str:
+                            logging.info(f"💰 {exchange_name} balances: {balance_str}")
+                    else:
+                        logging.info(f"💰 {exchange_name} balances: No significant balances found")
+                    
+                    clients['alpaca'] = client
+                    logging.info(f"Alpaca client initialized ({'Paper' if 'paper' in base_url.lower() else 'Live'} trading)")
                 else:
                     error_msg = validation.get('error', 'Unknown error')
                     logging.error(f"❌ {exchange_name} connection failed: {error_msg}")
@@ -238,15 +276,17 @@ def main():
     # In the future, we can support multiple exchanges simultaneously
     trading_executor = None
     if exchange_clients:
-        primary_exchange = list(exchange_clients.values())[0]
+        # Use first available exchange (prefer MEXC if available, otherwise use first)
+        primary_exchange_name = 'mexc' if 'mexc' in exchange_clients else list(exchange_clients.keys())[0]
+        primary_exchange = exchange_clients[primary_exchange_name]
         
         # Merge trading settings with risk management for executor config
         executor_config = trading_settings.copy()
         risk_mgmt = dashboard_config.get('risk_management', {})
         executor_config['STOP_LOSS_PERCENT'] = risk_mgmt.get('stop_loss_percent', 5.0)
         
-        trading_executor = TradingExecutor(primary_exchange, executor_config)
-        logger.info("Trading executor initialized")
+        trading_executor = TradingExecutor(primary_exchange, executor_config, primary_exchange_name)
+        logger.info(f"Trading executor initialized with {primary_exchange_name}")
         logger.info("⚠️  CRITICAL: Stop-loss will move to entry after TP1 (hard requirement)")
     
     # Initialize webhook handler (always initialize, even without executor for demo mode)

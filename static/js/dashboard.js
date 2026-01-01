@@ -187,9 +187,8 @@ async function renderExchanges() {
     
     list.innerHTML = '';
     
-    // Filter out Alpaca (removed from supported exchanges)
+    // Show all configured exchanges
     Object.entries(config.exchanges)
-        .filter(([key]) => key !== 'alpaca')
         .forEach(([key, exchange]) => {
         const item = document.createElement('div');
         item.className = `exchange-item ${exchange.enabled ? 'enabled' : ''}`;

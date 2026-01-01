@@ -405,3 +405,4 @@ This indicator combines **WaveTrend**, **Bollinger Bands**, and **RSI** into a s
 
 **Key Takeaway**: This is not a single-indicator strategy. It requires confirmation from three different technical analysis tools, making it more reliable than strategies using just one indicator.
 
+

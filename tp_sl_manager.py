@@ -1,15 +1,16 @@
 """
 Take Profit and Stop Loss Manager
 Handles TP levels and stop-loss management according to requirements
+Supports multiple exchanges
 
 NOTE: MEXC Spot API does NOT support stop-loss orders.
 We use a monitoring system to check prices and execute stop-loss manually.
+Alpaca supports native stop-loss orders via API.
 """
 
 import logging
 import time
-from typing import Dict, Optional
-from mexc_client import MEXCClient
+from typing import Dict, Optional, Union
 from position_manager import PositionManager
 
 logger = logging.getLogger(__name__)
@@ -27,19 +28,21 @@ class TPSLManager:
         'tp5': {'percent': 8.0, 'close_percent': 50.0}    # 8% from entry, close 50% of remaining (2.5% runner)
     }
     
-    def __init__(self, mexc_client: MEXCClient, position_manager: PositionManager, 
-                 stop_loss_percent: float = 5.0):
+    def __init__(self, exchange_client: Union[object], position_manager: PositionManager, 
+                 stop_loss_percent: float = 5.0, exchange_name: str = 'mexc'):
         """
         Initialize TP/SL Manager
         
         Args:
-            mexc_client: MEXC API client
+            exchange_client: Exchange API client instance (MEXCClient, AlpacaClient, etc.)
             position_manager: Position manager instance
             stop_loss_percent: Initial stop loss percentage (default: 5%)
+            exchange_name: Name of the exchange ('mexc', 'alpaca', etc.)
         """
-        self.client = mexc_client
+        self.client = exchange_client
         self.position_manager = position_manager
         self.stop_loss_percent = stop_loss_percent
+        self.exchange_name = exchange_name.lower()
         self.stop_loss_monitor = None  # Will be set by TradingExecutor
     
     def calculate_tp_price(self, entry_price: float, tp_level: str, side: str) -> float:

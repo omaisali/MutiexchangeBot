@@ -432,10 +432,10 @@ class AlpacaClient:
                    stop_price: Optional[float] = None,
                    time_in_force: str = 'day') -> Dict:
         """
-        Place an order
+        Place an order (supports both stocks and crypto)
         
         Args:
-            symbol: Trading symbol (e.g., 'AAPL')
+            symbol: Trading symbol (e.g., 'AAPL' for stocks, 'BTC/USD' for crypto)
             side: 'buy' or 'sell'
             order_type: 'market', 'limit', 'stop', 'stop_limit'
             quantity: Number of shares (for market/limit orders)
@@ -447,8 +447,14 @@ class AlpacaClient:
         Returns:
             Order response
         """
-        # Alpaca uses symbol without exchange suffix
-        clean_symbol = symbol.replace('USDT', '').replace('USD', '')
+        # Format symbol based on asset type (crypto or stock)
+        is_crypto = self._is_crypto_symbol(symbol)
+        if is_crypto:
+            # Crypto: use BTC/USD format (keep as-is if already formatted)
+            clean_symbol = self._format_crypto_symbol(symbol)
+        else:
+            # Stock: remove suffixes
+            clean_symbol = self._format_stock_symbol(symbol)
         
         order_data = {
             'symbol': clean_symbol,
@@ -506,17 +512,21 @@ class AlpacaClient:
     
     def place_market_sell(self, symbol: str, quantity: float) -> Dict:
         """
-        Place a market sell order
+        Place a market sell order (supports both stocks and crypto)
         
         Args:
-            symbol: Trading symbol
-            quantity: Number of shares to sell
+            symbol: Trading symbol (e.g., 'AAPL' for stocks, 'BTC/USD' for crypto)
+            quantity: Number of shares/coins to sell
             
         Returns:
             Order response
         """
+        # Format symbol correctly
+        is_crypto = self._is_crypto_symbol(symbol)
+        formatted_symbol = self._format_crypto_symbol(symbol) if is_crypto else self._format_stock_symbol(symbol)
+        
         return self.place_order(
-            symbol=symbol,
+            symbol=formatted_symbol,
             side='sell',
             order_type='market',
             quantity=quantity

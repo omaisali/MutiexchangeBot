@@ -282,8 +282,14 @@ class TradingExecutor:
             }
             
         except Exception as e:
-            logger.error(f"Error executing BUY order: {e}", exc_info=True)
-            return None
+            error_msg = str(e)
+            logger.error(f"Error executing BUY order: {error_msg}", exc_info=True)
+            # Return error dict so webhook handler can see the actual error
+            return {
+                'error': error_msg,
+                'symbol': symbol,
+                'exchange': self.exchange_name
+            }
     
     def execute_sell(self, symbol: str, signal_data: Dict) -> Optional[Dict]:
         """

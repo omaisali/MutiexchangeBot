@@ -217,6 +217,19 @@ class WebhookHandler:
                         }), 400
                     
                     if order_response:
+                        # Check if response contains an error (even if order_response is truthy)
+                        if isinstance(order_response, dict) and 'error' in order_response:
+                            error_msg = order_response.get('error', 'Unknown error')
+                            logger.error(f"❌ Order execution failed: {error_msg}")
+                            self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
+                            return jsonify({
+                                'status': 'error',
+                                'message': error_msg,
+                                'symbol': signal_data.get('symbol'),
+                                'exchange': executor.exchange_name
+                            }), 400
+                        
+                        # Success case
                         self.signal_monitor.add_signal(signal_data, executed=True)
                         logger.info(f"✅ Order executed successfully: {order_response}")
                         return jsonify({
@@ -225,8 +238,10 @@ class WebhookHandler:
                             'order': order_response
                         }), 200
                     else:
-                        error_msg = 'Failed to execute order'
+                        # order_response is None or falsy
+                        error_msg = 'Failed to execute order (executor returned None)'
                         logger.error(f"❌ {error_msg}")
+                        logger.error(f"   Signal: {signal_data.get('signal')} for {signal_data.get('symbol')}")
                         self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
                         return jsonify({
                             'status': 'error',

@@ -321,6 +321,9 @@ def main():
     # Set signal_monitor reference in dashboard for API endpoints
     dashboard.signal_monitor = signal_monitor
     
+    # Store dashboard reference in webhook handler so it can access config
+    webhook_handler.dashboard = dashboard
+    
     # Integrate webhook route into dashboard Flask app (single server, no port conflict)
     # Register webhook handler's route in dashboard app
     webhook_handler._register_routes_to_app(dashboard.app)

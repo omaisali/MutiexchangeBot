@@ -47,14 +47,34 @@ class WebhookHandler:
             import json
             from trading_executor import TradingExecutor
             
-            config_file = 'dashboard_config.json'
-            if not os.path.exists(config_file):
-                logger.warning("Dashboard config file not found, cannot create executor")
-                return None
-            
-            # Load dashboard config
-            with open(config_file, 'r') as f:
-                dashboard_config = json.load(f)
+            # First, try to get config from dashboard instance if available
+            dashboard_config = None
+            if hasattr(self, 'dashboard') and self.dashboard:
+                dashboard_config = self.dashboard.config
+                logger.info("Using config from dashboard instance")
+            else:
+                # Try multiple possible config file paths
+                possible_paths = [
+                    'dashboard_config.json',
+                    os.path.join(os.path.dirname(__file__), 'dashboard_config.json'),
+                    os.path.join(os.getcwd(), 'dashboard_config.json'),
+                ]
+                
+                config_file = None
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        config_file = path
+                        logger.info(f"Found config file at: {path}")
+                        break
+                
+                if not config_file:
+                    logger.warning(f"Dashboard config file not found in any of these locations: {possible_paths}")
+                    logger.warning("Cannot create executor dynamically. Please ensure dashboard_config.json exists.")
+                    return None
+                
+                # Load dashboard config
+                with open(config_file, 'r') as f:
+                    dashboard_config = json.load(f)
             
             # Get trading settings
             trading_settings = dashboard_config.get('trading_settings', {})

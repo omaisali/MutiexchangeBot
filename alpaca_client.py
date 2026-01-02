@@ -92,14 +92,6 @@ class AlpacaClient:
         """
         # Remove common suffixes
         return symbol.replace('USDT', '').replace('USD', '').replace('USDC', '').upper()
-        
-        # Log loaded keys (masked) for verification
-        if self.api_key:
-            masked_key = f"{self.api_key[:6]}...{self.api_key[-4:]}" if len(self.api_key) > 10 else "***"
-            logger.info(f"🔑 Loaded Alpaca API Key: {masked_key} (length: {len(self.api_key)})")
-        if self.api_secret:
-            masked_secret = f"{self.api_secret[:6]}...{self.api_secret[-4:]}" if len(self.api_secret) > 10 else "***"
-            logger.info(f"🔑 Loaded Alpaca API Secret: {masked_secret} (length: {len(self.api_secret)})")
     
     def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None, 
                      data: Optional[Dict] = None, use_data_api: bool = False) -> Dict:
@@ -322,15 +314,16 @@ class AlpacaClient:
                 
                 # Use crypto bars endpoint (works 24/7)
                 try:
-                    # Get latest 1-minute bar
+                    # Get latest 1-minute bar (use data API)
                     response = self._make_request(
                         'GET', 
-                        f'{self.data_base_url}/v1beta3/crypto/us/bars',
+                        '/v1beta3/crypto/us/bars',
                         params={
                             'symbols': crypto_symbol,
                             'timeframe': '1Min',
                             'limit': 1
-                        }
+                        },
+                        use_data_api=True
                     )
                     
                     if response and 'bars' in response:

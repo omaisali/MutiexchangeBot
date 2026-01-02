@@ -34,7 +34,12 @@ class TradingExecutor:
         position_size = float(config.get('POSITION_SIZE_PERCENT', 20.0))
         self.position_size_percent = max(20.0, min(100.0, position_size))  # Clamp between 20-100%
         self.position_size_fixed = config.get('POSITION_SIZE_FIXED')
-        self.use_percentage = config.get('USE_PERCENTAGE', 'true').lower() == 'true'
+        # Handle USE_PERCENTAGE as both boolean and string
+        use_percentage_val = config.get('USE_PERCENTAGE', True)
+        if isinstance(use_percentage_val, bool):
+            self.use_percentage = use_percentage_val
+        else:
+            self.use_percentage = str(use_percentage_val).lower() == 'true'
         
         # Initialize position and TP/SL managers
         self.position_manager = PositionManager(exchange_client, exchange_name)

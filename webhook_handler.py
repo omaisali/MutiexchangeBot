@@ -118,7 +118,9 @@ class WebhookHandler:
             executor_config = trading_settings.copy()
             executor_config['STOP_LOSS_PERCENT'] = risk_mgmt.get('stop_loss_percent', 5.0)
             executor_config['POSITION_SIZE_PERCENT'] = trading_settings.get('position_size_percent', 20.0)
-            executor_config['USE_PERCENTAGE'] = trading_settings.get('use_percentage', True)
+            # Ensure USE_PERCENTAGE is boolean (dashboard stores it as boolean)
+            use_percentage = trading_settings.get('use_percentage', True)
+            executor_config['USE_PERCENTAGE'] = bool(use_percentage) if not isinstance(use_percentage, str) else use_percentage
             
             # Create executor
             executor = TradingExecutor(primary_exchange, executor_config, primary_exchange_name)

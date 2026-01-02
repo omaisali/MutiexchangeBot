@@ -249,20 +249,45 @@ class AlpacaClient:
             
         Returns:
             Current price
+            
+        Note:
+            Alpaca Markets API only supports stocks, not crypto.
+            For crypto symbols, this will raise an error.
         """
         try:
             # Alpaca uses symbol without exchange suffix
             clean_symbol = symbol.replace('USDT', '').replace('USD', '')
             
-            # Get latest trade
+            # Check if this looks like a crypto symbol (common crypto tickers)
+            crypto_symbols = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ATOM']
+            if clean_symbol.upper() in crypto_symbols:
+                raise ValueError(f"Alpaca Markets API does not support crypto trading. Symbol '{symbol}' is a cryptocurrency. Alpaca only supports stocks. Please use a stock exchange (like MEXC) for crypto trading.")
+            
+            # Get latest trade (stocks only)
             latest_trade = self._make_request('GET', f'/v2/stocks/{clean_symbol}/trades/latest')
             return float(latest_trade.get('p', 0))
+        except ValueError:
+            # Re-raise ValueError (our custom crypto error)
+            raise
         except Exception as e:
+            error_msg = str(e)
+            # Check if it's a 404 (symbol not found)
+            if '404' in error_msg or 'Not Found' in error_msg:
+                # Check if it might be crypto
+                clean_symbol = symbol.replace('USDT', '').replace('USD', '')
+                crypto_symbols = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ATOM']
+                if clean_symbol.upper() in crypto_symbols:
+                    raise ValueError(f"Alpaca Markets API does not support crypto trading. Symbol '{symbol}' is a cryptocurrency. Alpaca only supports stocks. Please use a stock exchange (like MEXC) for crypto trading.")
+                else:
+                    raise ValueError(f"Symbol '{symbol}' not found on Alpaca. Alpaca only supports stocks, not crypto or forex.")
             logger.error(f"Error getting ticker price for {symbol}: {e}")
             # Fallback: try to get from positions
-            position = self.get_position(symbol)
-            if position:
-                return float(position.get('current_price', 0))
+            try:
+                position = self.get_position(symbol)
+                if position:
+                    return float(position.get('current_price', 0))
+            except:
+                pass
             raise
     
     def place_order(self, symbol: str, side: str, order_type: str,

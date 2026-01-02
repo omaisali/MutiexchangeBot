@@ -201,24 +201,48 @@ class WebhookHandler:
             # Execute trading signal (or simulate in demo mode)
             if executor:
                 logger.info(f"🚀 Executing {signal_data.get('signal')} signal for {signal_data.get('symbol')} using {executor.exchange_name}")
-                order_response = executor.execute_signal(signal_data)
-                
-                if order_response:
-                    self.signal_monitor.add_signal(signal_data, executed=True)
-                    logger.info(f"✅ Order executed successfully: {order_response}")
-                    return jsonify({
-                        'status': 'success',
-                        'message': 'Order executed successfully',
-                        'order': order_response
-                    }), 200
-                else:
-                    error_msg = 'Failed to execute order'
-                    logger.error(f"❌ {error_msg}")
+                try:
+                    order_response = executor.execute_signal(signal_data)
+                    
+                    # Check if response contains an error (exchange-specific validation)
+                    if order_response and isinstance(order_response, dict) and 'error' in order_response:
+                        error_msg = order_response.get('error', 'Exchange validation error')
+                        logger.error(f"❌ {error_msg}")
+                        self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
+                        return jsonify({
+                            'status': 'error',
+                            'message': error_msg,
+                            'symbol': signal_data.get('symbol'),
+                            'exchange': executor.exchange_name
+                        }), 400
+                    
+                    if order_response:
+                        self.signal_monitor.add_signal(signal_data, executed=True)
+                        logger.info(f"✅ Order executed successfully: {order_response}")
+                        return jsonify({
+                            'status': 'success',
+                            'message': 'Order executed successfully',
+                            'order': order_response
+                        }), 200
+                    else:
+                        error_msg = 'Failed to execute order'
+                        logger.error(f"❌ {error_msg}")
+                        self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
+                        return jsonify({
+                            'status': 'error',
+                            'message': error_msg
+                        }), 500
+                except ValueError as e:
+                    # Handle exchange-specific validation errors (e.g., Alpaca doesn't support crypto)
+                    error_msg = str(e)
+                    logger.error(f"❌ Exchange validation error: {error_msg}")
                     self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
                     return jsonify({
                         'status': 'error',
-                        'message': error_msg
-                    }), 500
+                        'message': error_msg,
+                        'symbol': signal_data.get('symbol'),
+                        'exchange': executor.exchange_name
+                    }), 400
             else:
                 # Demo mode: simulate trade execution
                 from demo_mode import DemoMode

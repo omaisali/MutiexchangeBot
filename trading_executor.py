@@ -169,8 +169,18 @@ class TradingExecutor:
                     logger.warning(f"⚠️  EXISTING POSITIONS DETECTED for {symbol}. Proceeding with new order.")
             
             # Get current price (this will be our entry price)
-            entry_price = self.client.get_ticker_price(symbol)
-            logger.info(f"Current {symbol} price: {entry_price}")
+            try:
+                entry_price = self.client.get_ticker_price(symbol)
+                logger.info(f"Current {symbol} price: {entry_price}")
+            except ValueError as e:
+                # Handle exchange-specific errors (e.g., Alpaca doesn't support crypto)
+                error_msg = str(e)
+                logger.error(f"❌ {error_msg}")
+                return {
+                    'error': error_msg,
+                    'symbol': symbol,
+                    'exchange': self.exchange_name
+                }
             
             # Calculate position size
             position_size_usdt = self.calculate_position_size(symbol, entry_price)

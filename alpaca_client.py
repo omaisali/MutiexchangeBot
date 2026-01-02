@@ -263,11 +263,71 @@ class AlpacaClient:
             if clean_symbol.upper() in crypto_symbols:
                 raise ValueError(f"Alpaca Markets API does not support crypto trading. Symbol '{symbol}' is a cryptocurrency. Alpaca only supports stocks. Please use a stock exchange (like MEXC) for crypto trading.")
             
-            # Get latest trade (stocks only)
-            latest_trade = self._make_request('GET', f'/v2/stocks/{clean_symbol}/trades/latest')
-            return float(latest_trade.get('p', 0))
+            # Try multiple endpoints to get price (some may not be available during off-hours)
+            price = None
+            
+            # Method 1: Try latest bar (most reliable, works during market hours)
+            try:
+                latest_bar = self._make_request('GET', f'/v2/stocks/{clean_symbol}/bars/latest', params={'timeframe': '1Min'})
+                if latest_bar and isinstance(latest_bar, dict):
+                    if 'bar' in latest_bar:
+                        price = float(latest_bar['bar'].get('c', 0))  # Close price from bar object
+                    elif 'c' in latest_bar:
+                        price = float(latest_bar.get('c', 0))  # Close price directly
+                if price and price > 0:
+                    logger.info(f"Got price from bars endpoint: {price}")
+                    return price
+            except Exception as e:
+                logger.debug(f"Bars endpoint failed: {e}")
+            
+            # Method 2: Try latest quote (works during market hours)
+            try:
+                latest_quote = self._make_request('GET', f'/v2/stocks/{clean_symbol}/quotes/latest')
+                if latest_quote and isinstance(latest_quote, dict):
+                    # Use midpoint of bid/ask
+                    quote_data = latest_quote.get('quote', latest_quote)
+                    bid = float(quote_data.get('bp', 0) or quote_data.get('bid', 0) or 0)
+                    ask = float(quote_data.get('ap', 0) or quote_data.get('ask', 0) or 0)
+                    if bid > 0 and ask > 0:
+                        price = (bid + ask) / 2.0
+                    elif bid > 0:
+                        price = bid
+                    elif ask > 0:
+                        price = ask
+                if price and price > 0:
+                    logger.info(f"Got price from quotes endpoint: {price}")
+                    return price
+            except Exception as e:
+                logger.debug(f"Quotes endpoint failed: {e}")
+            
+            # Method 3: Try latest trade (may not work during off-hours)
+            try:
+                latest_trade = self._make_request('GET', f'/v2/stocks/{clean_symbol}/trades/latest')
+                if latest_trade and isinstance(latest_trade, dict):
+                    trade_data = latest_trade.get('trade', latest_trade)
+                    price = float(trade_data.get('p', 0) or trade_data.get('price', 0))
+                if price and price > 0:
+                    logger.info(f"Got price from trades endpoint: {price}")
+                    return price
+            except Exception as e:
+                logger.debug(f"Trades endpoint failed: {e}")
+            
+            # Method 4: Try to get from existing position
+            try:
+                position = self.get_position(symbol)
+                if position:
+                    price = float(position.get('current_price', 0) or position.get('avg_entry_price', 0))
+                    if price and price > 0:
+                        logger.info(f"Got price from position: {price}")
+                        return price
+            except Exception as e:
+                logger.debug(f"Position lookup failed: {e}")
+            
+            # If all methods failed, raise error
+            raise ValueError(f"Could not get price for '{symbol}' on Alpaca. Symbol may not be available, or market may be closed. Alpaca only supports US stocks during market hours (9:30 AM - 4:00 PM ET).")
+            
         except ValueError:
-            # Re-raise ValueError (our custom crypto error)
+            # Re-raise ValueError (our custom errors)
             raise
         except Exception as e:
             error_msg = str(e)
@@ -279,15 +339,8 @@ class AlpacaClient:
                 if clean_symbol.upper() in crypto_symbols:
                     raise ValueError(f"Alpaca Markets API does not support crypto trading. Symbol '{symbol}' is a cryptocurrency. Alpaca only supports stocks. Please use a stock exchange (like MEXC) for crypto trading.")
                 else:
-                    raise ValueError(f"Symbol '{symbol}' not found on Alpaca. Alpaca only supports stocks, not crypto or forex.")
+                    raise ValueError(f"Symbol '{symbol}' not found on Alpaca or market is closed. Alpaca only supports US stocks during market hours (9:30 AM - 4:00 PM ET). Try again during market hours or use a different exchange.")
             logger.error(f"Error getting ticker price for {symbol}: {e}")
-            # Fallback: try to get from positions
-            try:
-                position = self.get_position(symbol)
-                if position:
-                    return float(position.get('current_price', 0))
-            except:
-                pass
             raise
     
     def place_order(self, symbol: str, side: str, order_type: str,

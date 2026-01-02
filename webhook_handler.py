@@ -395,6 +395,18 @@ class WebhookHandler:
                 # Try to get price from close if available
                 close_price = data.get('close') or (data.get('price', {}).get('close') if isinstance(data.get('price'), dict) else 0)
                 data['price'] = {'close': close_price}
+            
+            # Convert crypto symbols to Alpaca format if needed (BTCUSD -> BTC/USD)
+            symbol = data.get('symbol', '')
+            if symbol and not '/' in symbol:
+                # Check if it's a crypto symbol
+                crypto_tickers = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ATOM', 'BNB', 'XRP', 'DOGE', 'LTC']
+                clean_symbol = symbol.replace('USDT', '').replace('USD', '').replace('USDC', '')
+                if clean_symbol.upper() in crypto_tickers:
+                    # Convert to Alpaca crypto format: BTC/USD
+                    data['symbol'] = f"{clean_symbol.upper()}/USD"
+                    logger.info(f"Converted crypto symbol {symbol} to Alpaca format: {data['symbol']}")
+            
             return data
         
         # Otherwise, try to parse from TradingView format

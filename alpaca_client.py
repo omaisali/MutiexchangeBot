@@ -30,6 +30,8 @@ class AlpacaClient:
         self.api_key = api_key.strip() if api_key else ''
         self.api_secret = api_secret.strip() if api_secret else ''
         self.base_url = base_url.rstrip('/')
+        # Market data API base URL (separate from trading API)
+        self.data_base_url = "https://data.alpaca.markets"
         self.session = requests.Session()
         
         # Set default headers for all requests
@@ -38,6 +40,58 @@ class AlpacaClient:
             'APCA-API-SECRET-KEY': self.api_secret,
             'Content-Type': 'application/json'
         })
+    
+    def _is_crypto_symbol(self, symbol: str) -> bool:
+        """
+        Check if symbol is a crypto symbol
+        
+        Args:
+            symbol: Trading symbol
+            
+        Returns:
+            True if crypto, False if stock
+        """
+        # Crypto symbols contain "/" (e.g., BTC/USD)
+        if '/' in symbol:
+            return True
+        
+        # Common crypto tickers (without /)
+        crypto_tickers = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ATOM', 'BNB', 'XRP', 'DOGE', 'LTC']
+        clean_symbol = symbol.replace('USDT', '').replace('USD', '').replace('USDC', '')
+        return clean_symbol.upper() in crypto_tickers
+    
+    def _format_crypto_symbol(self, symbol: str) -> str:
+        """
+        Format symbol for crypto API (BTC/USD format)
+        
+        Args:
+            symbol: Trading symbol (e.g., BTCUSD, BTC/USD, BTC)
+            
+        Returns:
+            Formatted crypto symbol (e.g., BTC/USD)
+        """
+        # If already in correct format, return as-is
+        if '/' in symbol:
+            return symbol.upper()
+        
+        # Remove common suffixes
+        clean = symbol.replace('USDT', '').replace('USD', '').replace('USDC', '')
+        
+        # Add /USD suffix for crypto
+        return f"{clean.upper()}/USD"
+    
+    def _format_stock_symbol(self, symbol: str) -> str:
+        """
+        Format symbol for stock API (remove suffixes)
+        
+        Args:
+            symbol: Trading symbol (e.g., AAPLUSD, AAPL)
+            
+        Returns:
+            Clean stock symbol (e.g., AAPL)
+        """
+        # Remove common suffixes
+        return symbol.replace('USDT', '').replace('USD', '').replace('USDC', '').upper()
         
         # Log loaded keys (masked) for verification
         if self.api_key:
@@ -48,7 +102,7 @@ class AlpacaClient:
             logger.info(f"🔑 Loaded Alpaca API Secret: {masked_secret} (length: {len(self.api_secret)})")
     
     def _make_request(self, method: str, endpoint: str, params: Optional[Dict] = None, 
-                     data: Optional[Dict] = None) -> Dict:
+                     data: Optional[Dict] = None, use_data_api: bool = False) -> Dict:
         """
         Make authenticated API request
         
@@ -57,11 +111,14 @@ class AlpacaClient:
             endpoint: API endpoint (e.g., '/v2/account')
             params: Query parameters
             data: Request body data
+            use_data_api: If True, use data API base URL instead of trading API
             
         Returns:
             Response JSON as dictionary
         """
-        url = f"{self.base_url}{endpoint}"
+        # Use data API base URL for market data requests
+        base_url = self.data_base_url if use_data_api else self.base_url
+        url = f"{base_url}{endpoint}"
         
         try:
             if method.upper() == 'GET':
@@ -224,17 +281,22 @@ class AlpacaClient:
     
     def get_position(self, symbol: str) -> Optional[Dict]:
         """
-        Get position for a specific symbol
+        Get position for a specific symbol (supports both stocks and crypto)
         
         Args:
-            symbol: Trading symbol (e.g., 'AAPL')
+            symbol: Trading symbol (e.g., 'AAPL' for stocks, 'BTC/USD' for crypto)
             
         Returns:
             Position dictionary or None
         """
         try:
-            # Alpaca uses symbol without exchange suffix
-            clean_symbol = symbol.replace('USDT', '').replace('USD', '')
+            # Format symbol based on asset type
+            is_crypto = self._is_crypto_symbol(symbol)
+            if is_crypto:
+                clean_symbol = self._format_crypto_symbol(symbol)
+            else:
+                clean_symbol = self._format_stock_symbol(symbol)
+            
             return self._make_request('GET', f'/v2/positions/{clean_symbol}')
         except Exception as e:
             # Position doesn't exist
@@ -242,105 +304,132 @@ class AlpacaClient:
     
     def get_ticker_price(self, symbol: str) -> float:
         """
-        Get current ticker price
+        Get current ticker price (supports both stocks and crypto)
         
         Args:
-            symbol: Trading symbol (e.g., 'AAPL' or 'AAPLUSD')
+            symbol: Trading symbol (e.g., 'AAPL' for stocks, 'BTC/USD' or 'BTCUSD' for crypto)
             
         Returns:
             Current price
-            
-        Note:
-            Alpaca Markets API only supports stocks, not crypto.
-            For crypto symbols, this will raise an error.
         """
         try:
-            # Alpaca uses symbol without exchange suffix
-            clean_symbol = symbol.replace('USDT', '').replace('USD', '')
+            is_crypto = self._is_crypto_symbol(symbol)
             
-            # Check if this looks like a crypto symbol (common crypto tickers)
-            crypto_symbols = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ATOM']
-            if clean_symbol.upper() in crypto_symbols:
-                raise ValueError(f"Alpaca Markets API does not support crypto trading. Symbol '{symbol}' is a cryptocurrency. Alpaca only supports stocks. Please use a stock exchange (like MEXC) for crypto trading.")
-            
-            # Try multiple endpoints to get price (some may not be available during off-hours)
-            price = None
-            
-            # Method 1: Try latest bar (most reliable, works during market hours)
-            try:
-                latest_bar = self._make_request('GET', f'/v2/stocks/{clean_symbol}/bars/latest', params={'timeframe': '1Min'})
-                if latest_bar and isinstance(latest_bar, dict):
-                    if 'bar' in latest_bar:
-                        price = float(latest_bar['bar'].get('c', 0))  # Close price from bar object
-                    elif 'c' in latest_bar:
-                        price = float(latest_bar.get('c', 0))  # Close price directly
-                if price and price > 0:
-                    logger.info(f"Got price from bars endpoint: {price}")
-                    return price
-            except Exception as e:
-                logger.debug(f"Bars endpoint failed: {e}")
-            
-            # Method 2: Try latest quote (works during market hours)
-            try:
-                latest_quote = self._make_request('GET', f'/v2/stocks/{clean_symbol}/quotes/latest')
-                if latest_quote and isinstance(latest_quote, dict):
-                    # Use midpoint of bid/ask
-                    quote_data = latest_quote.get('quote', latest_quote)
-                    bid = float(quote_data.get('bp', 0) or quote_data.get('bid', 0) or 0)
-                    ask = float(quote_data.get('ap', 0) or quote_data.get('ask', 0) or 0)
-                    if bid > 0 and ask > 0:
-                        price = (bid + ask) / 2.0
-                    elif bid > 0:
-                        price = bid
-                    elif ask > 0:
-                        price = ask
-                if price and price > 0:
-                    logger.info(f"Got price from quotes endpoint: {price}")
-                    return price
-            except Exception as e:
-                logger.debug(f"Quotes endpoint failed: {e}")
-            
-            # Method 3: Try latest trade (may not work during off-hours)
-            try:
-                latest_trade = self._make_request('GET', f'/v2/stocks/{clean_symbol}/trades/latest')
-                if latest_trade and isinstance(latest_trade, dict):
-                    trade_data = latest_trade.get('trade', latest_trade)
-                    price = float(trade_data.get('p', 0) or trade_data.get('price', 0))
-                if price and price > 0:
-                    logger.info(f"Got price from trades endpoint: {price}")
-                    return price
-            except Exception as e:
-                logger.debug(f"Trades endpoint failed: {e}")
-            
-            # Method 4: Try to get from existing position
-            try:
-                position = self.get_position(symbol)
-                if position:
-                    price = float(position.get('current_price', 0) or position.get('avg_entry_price', 0))
+            if is_crypto:
+                # Use crypto market data API
+                crypto_symbol = self._format_crypto_symbol(symbol)
+                logger.info(f"Fetching crypto price for {crypto_symbol}")
+                
+                # Use crypto bars endpoint (works 24/7)
+                try:
+                    # Get latest 1-minute bar
+                    response = self._make_request(
+                        'GET', 
+                        f'{self.data_base_url}/v1beta3/crypto/us/bars',
+                        params={
+                            'symbols': crypto_symbol,
+                            'timeframe': '1Min',
+                            'limit': 1
+                        }
+                    )
+                    
+                    if response and 'bars' in response:
+                        bars = response['bars']
+                        if crypto_symbol in bars and len(bars[crypto_symbol]) > 0:
+                            latest_bar = bars[crypto_symbol][0]
+                            price = float(latest_bar.get('c', 0))  # Close price
+                            if price > 0:
+                                logger.info(f"✅ Got crypto price from bars: {price}")
+                                return price
+                    
+                    raise ValueError(f"No price data available for {crypto_symbol}")
+                    
+                except Exception as e:
+                    logger.error(f"Error getting crypto price: {e}")
+                    # Fallback: try position
+                    try:
+                        position = self.get_position(symbol)
+                        if position:
+                            price = float(position.get('current_price', 0) or position.get('avg_entry_price', 0))
+                            if price > 0:
+                                return price
+                    except:
+                        pass
+                    raise ValueError(f"Could not get price for crypto symbol '{symbol}'. Ensure symbol is in format 'BTC/USD' or use MEXC for crypto trading.")
+            else:
+                # Use stock market data API
+                stock_symbol = self._format_stock_symbol(symbol)
+                logger.info(f"Fetching stock price for {stock_symbol}")
+                
+                price = None
+                
+                # Method 1: Try latest bar (most reliable, works during market hours)
+                try:
+                    latest_bar = self._make_request(
+                        'GET', 
+                        f'/v2/stocks/{stock_symbol}/bars/latest',
+                        params={'timeframe': '1Min'},
+                        use_data_api=True
+                    )
+                    if latest_bar and isinstance(latest_bar, dict):
+                        if 'bar' in latest_bar:
+                            price = float(latest_bar['bar'].get('c', 0))
+                        elif 'c' in latest_bar:
+                            price = float(latest_bar.get('c', 0))
                     if price and price > 0:
-                        logger.info(f"Got price from position: {price}")
+                        logger.info(f"✅ Got stock price from bars: {price}")
                         return price
-            except Exception as e:
-                logger.debug(f"Position lookup failed: {e}")
-            
-            # If all methods failed, raise error
-            raise ValueError(f"Could not get price for '{symbol}' on Alpaca. Symbol may not be available, or market may be closed. Alpaca only supports US stocks during market hours (9:30 AM - 4:00 PM ET).")
+                except Exception as e:
+                    logger.debug(f"Bars endpoint failed: {e}")
+                
+                # Method 2: Try latest quote (works during market hours)
+                try:
+                    latest_quote = self._make_request(
+                        'GET', 
+                        f'/v2/stocks/{stock_symbol}/quotes/latest',
+                        use_data_api=True
+                    )
+                    if latest_quote and isinstance(latest_quote, dict):
+                        quote_data = latest_quote.get('quote', latest_quote)
+                        bid = float(quote_data.get('bp', 0) or quote_data.get('bid', 0) or 0)
+                        ask = float(quote_data.get('ap', 0) or quote_data.get('ask', 0) or 0)
+                        if bid > 0 and ask > 0:
+                            price = (bid + ask) / 2.0
+                        elif bid > 0:
+                            price = bid
+                        elif ask > 0:
+                            price = ask
+                    if price and price > 0:
+                        logger.info(f"✅ Got stock price from quotes: {price}")
+                        return price
+                except Exception as e:
+                    logger.debug(f"Quotes endpoint failed: {e}")
+                
+                # Method 3: Try position
+                try:
+                    position = self.get_position(symbol)
+                    if position:
+                        price = float(position.get('current_price', 0) or position.get('avg_entry_price', 0))
+                        if price > 0:
+                            logger.info(f"✅ Got stock price from position: {price}")
+                            return price
+                except Exception as e:
+                    logger.debug(f"Position lookup failed: {e}")
+                
+                # If all methods failed
+                raise ValueError(f"Could not get price for stock '{symbol}' on Alpaca. Market may be closed (9:30 AM - 4:00 PM ET).")
             
         except ValueError:
             # Re-raise ValueError (our custom errors)
             raise
         except Exception as e:
             error_msg = str(e)
-            # Check if it's a 404 (symbol not found)
-            if '404' in error_msg or 'Not Found' in error_msg:
-                # Check if it might be crypto
-                clean_symbol = symbol.replace('USDT', '').replace('USD', '')
-                crypto_symbols = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ATOM']
-                if clean_symbol.upper() in crypto_symbols:
-                    raise ValueError(f"Alpaca Markets API does not support crypto trading. Symbol '{symbol}' is a cryptocurrency. Alpaca only supports stocks. Please use a stock exchange (like MEXC) for crypto trading.")
-                else:
-                    raise ValueError(f"Symbol '{symbol}' not found on Alpaca or market is closed. Alpaca only supports US stocks during market hours (9:30 AM - 4:00 PM ET). Try again during market hours or use a different exchange.")
             logger.error(f"Error getting ticker price for {symbol}: {e}")
+            if '404' in error_msg or 'Not Found' in error_msg:
+                if self._is_crypto_symbol(symbol):
+                    raise ValueError(f"Symbol '{symbol}' not found on Alpaca crypto API. Ensure symbol is in format 'BTC/USD'.")
+                else:
+                    raise ValueError(f"Symbol '{symbol}' not found on Alpaca or market is closed. Alpaca only supports US stocks during market hours (9:30 AM - 4:00 PM ET).")
             raise
     
     def place_order(self, symbol: str, side: str, order_type: str,
@@ -402,17 +491,21 @@ class AlpacaClient:
     
     def place_market_buy(self, symbol: str, notional: float) -> Dict:
         """
-        Place a market buy order
+        Place a market buy order (supports both stocks and crypto)
         
         Args:
-            symbol: Trading symbol
+            symbol: Trading symbol (e.g., 'AAPL' for stocks, 'BTC/USD' for crypto)
             notional: Dollar amount to spend
             
         Returns:
             Order response
         """
+        # Format symbol correctly
+        is_crypto = self._is_crypto_symbol(symbol)
+        formatted_symbol = self._format_crypto_symbol(symbol) if is_crypto else self._format_stock_symbol(symbol)
+        
         return self.place_order(
-            symbol=symbol,
+            symbol=formatted_symbol,
             side='buy',
             order_type='market',
             notional=notional

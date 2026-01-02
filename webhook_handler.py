@@ -340,6 +340,15 @@ class WebhookHandler:
         """
         # If data is already in JSON format, use it directly
         if 'symbol' in data and 'signal' in data:
+            # Ensure required fields are present for validation
+            if 'indicators' not in data:
+                data['indicators'] = {}
+            if 'strategy' not in data:
+                data['strategy'] = {'all_conditions_met': True}
+            if 'price' not in data:
+                # Try to get price from close if available
+                close_price = data.get('close') or (data.get('price', {}).get('close') if isinstance(data.get('price'), dict) else 0)
+                data['price'] = {'close': close_price}
             return data
         
         # Otherwise, try to parse from TradingView format

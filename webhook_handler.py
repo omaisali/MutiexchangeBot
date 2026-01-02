@@ -30,6 +30,108 @@ class WebhookHandler:
         self.app = Flask(__name__)
         self._setup_routes()
     
+    def _get_or_create_executor(self):
+        """
+        Get existing executor or create one from current dashboard config
+        
+        Returns:
+            TradingExecutor instance or None if no exchanges configured
+        """
+        # If executor already exists, use it
+        if self.executor:
+            return self.executor
+        
+        # Try to create executor from current dashboard config
+        try:
+            import os
+            import json
+            from trading_executor import TradingExecutor
+            
+            config_file = 'dashboard_config.json'
+            if not os.path.exists(config_file):
+                logger.warning("Dashboard config file not found, cannot create executor")
+                return None
+            
+            # Load dashboard config
+            with open(config_file, 'r') as f:
+                dashboard_config = json.load(f)
+            
+            # Get trading settings
+            trading_settings = dashboard_config.get('trading_settings', {})
+            risk_mgmt = dashboard_config.get('risk_management', {})
+            
+            # Create exchange clients
+            exchange_clients = {}
+            for exchange_name, exchange_config in dashboard_config.get('exchanges', {}).items():
+                if not exchange_config.get('enabled', False):
+                    continue
+                
+                api_key = exchange_config.get('api_key', '').strip()
+                api_secret = exchange_config.get('api_secret', '').strip()
+                base_url = exchange_config.get('base_url', '').strip()
+                
+                if not api_key or not api_secret:
+                    logger.warning(f"{exchange_name} is enabled but missing API credentials")
+                    continue
+                
+                try:
+                    if exchange_name == 'mexc':
+                        from mexc_client import MEXCClient
+                        client = MEXCClient(
+                            api_key=api_key,
+                            api_secret=api_secret,
+                            base_url=base_url,
+                            sub_account_id=exchange_config.get('sub_account_id', ''),
+                            use_sub_account=exchange_config.get('use_sub_account', False)
+                        )
+                        validation = client.validate_connection()
+                        if validation['connected']:
+                            exchange_clients['mexc'] = client
+                            logger.info(f"✅ Created MEXC client for executor")
+                        else:
+                            logger.warning(f"❌ MEXC connection failed: {validation.get('error', 'Unknown error')}")
+                    elif exchange_name == 'alpaca':
+                        from alpaca_client import AlpacaClient
+                        client = AlpacaClient(
+                            api_key=api_key,
+                            api_secret=api_secret,
+                            base_url=base_url
+                        )
+                        validation = client.validate_connection()
+                        if validation['connected']:
+                            exchange_clients['alpaca'] = client
+                            logger.info(f"✅ Created Alpaca client for executor")
+                        else:
+                            logger.warning(f"❌ Alpaca connection failed: {validation.get('error', 'Unknown error')}")
+                except Exception as e:
+                    logger.error(f"Failed to create {exchange_name} client: {e}", exc_info=True)
+            
+            if not exchange_clients:
+                logger.warning("No enabled exchanges with valid credentials found")
+                return None
+            
+            # Use first available exchange (prefer MEXC if available, otherwise use first)
+            primary_exchange_name = 'mexc' if 'mexc' in exchange_clients else list(exchange_clients.keys())[0]
+            primary_exchange = exchange_clients[primary_exchange_name]
+            
+            # Merge trading settings with risk management for executor config
+            executor_config = trading_settings.copy()
+            executor_config['STOP_LOSS_PERCENT'] = risk_mgmt.get('stop_loss_percent', 5.0)
+            executor_config['POSITION_SIZE_PERCENT'] = trading_settings.get('position_size_percent', 20.0)
+            executor_config['USE_PERCENTAGE'] = trading_settings.get('use_percentage', True)
+            
+            # Create executor
+            executor = TradingExecutor(primary_exchange, executor_config, primary_exchange_name)
+            logger.info(f"✅ Trading executor created dynamically with {primary_exchange_name}")
+            
+            # Cache the executor for future use
+            self.executor = executor
+            return executor
+            
+        except Exception as e:
+            logger.error(f"Error creating executor dynamically: {e}", exc_info=True)
+            return None
+    
     def _register_routes_to_app(self, target_app):
         """Register webhook routes to an existing Flask app (for integration)"""
         # Copy webhook route to target app
@@ -71,12 +173,17 @@ class WebhookHandler:
                 self.signal_monitor.add_signal(data if data else {}, executed=False, error=error_msg)
                 return jsonify({'status': 'error', 'message': error_msg}), 400
             
+            # Get or create executor (dynamically create if not exists)
+            executor = self._get_or_create_executor()
+            
             # Execute trading signal (or simulate in demo mode)
-            if self.executor:
-                order_response = self.executor.execute_signal(signal_data)
+            if executor:
+                logger.info(f"🚀 Executing {signal_data.get('signal')} signal for {signal_data.get('symbol')} using {executor.exchange_name}")
+                order_response = executor.execute_signal(signal_data)
                 
                 if order_response:
                     self.signal_monitor.add_signal(signal_data, executed=True)
+                    logger.info(f"✅ Order executed successfully: {order_response}")
                     return jsonify({
                         'status': 'success',
                         'message': 'Order executed successfully',
@@ -84,6 +191,7 @@ class WebhookHandler:
                     }), 200
                 else:
                     error_msg = 'Failed to execute order'
+                    logger.error(f"❌ {error_msg}")
                     self.signal_monitor.add_signal(signal_data, executed=False, error=error_msg)
                     return jsonify({
                         'status': 'error',

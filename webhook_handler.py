@@ -413,14 +413,21 @@ class WebhookHandler:
             
             # Convert crypto symbols to Alpaca format if needed (BTCUSD -> BTC/USD)
             symbol = data.get('symbol', '')
-            if symbol and not '/' in symbol:
-                # Check if it's a crypto symbol
-                crypto_tickers = ['BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'MATIC', 'AVAX', 'LINK', 'UNI', 'ATOM', 'BNB', 'XRP', 'DOGE', 'LTC']
-                clean_symbol = symbol.replace('USDT', '').replace('USD', '').replace('USDC', '')
-                if clean_symbol.upper() in crypto_tickers:
+            if symbol and '/' not in symbol:
+                # Check if it's a crypto symbol (ends with USD, USDT, or USDC)
+                symbol_upper = symbol.upper()
+                if symbol_upper.endswith('USD') or symbol_upper.endswith('USDT') or symbol_upper.endswith('USDC'):
+                    # Extract base currency (e.g., BTC from BTCUSD or BTCUSDT)
+                    base_currency = symbol_upper
+                    for suffix in ['USDT', 'USDC', 'USD']:
+                        if base_currency.endswith(suffix):
+                            base_currency = base_currency[:-len(suffix)]
+                            break
+                    
                     # Convert to Alpaca crypto format: BTC/USD
-                    data['symbol'] = f"{clean_symbol.upper()}/USD"
-                    logger.info(f"Converted crypto symbol {symbol} to Alpaca format: {data['symbol']}")
+                    if base_currency:
+                        data['symbol'] = f"{base_currency}/USD"
+                        logger.info(f"Converted crypto symbol {symbol} to Alpaca format: {data['symbol']}")
             
             return data
         

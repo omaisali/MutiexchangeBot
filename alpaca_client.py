@@ -474,7 +474,8 @@ class AlpacaClient:
         
         if order_type.lower() == 'market':
             if notional:
-                order_data['notional'] = notional
+                # Alpaca requires notional to be rounded to 2 decimal places
+                order_data['notional'] = round(float(notional), 2)
             elif quantity:
                 order_data['qty'] = str(quantity)
             else:
@@ -503,7 +504,7 @@ class AlpacaClient:
         
         Args:
             symbol: Trading symbol (e.g., 'AAPL' for stocks, 'BTC/USD' for crypto)
-            notional: Dollar amount to spend
+            notional: Dollar amount to spend (will be rounded to 2 decimal places for Alpaca)
             
         Returns:
             Order response
@@ -512,11 +513,16 @@ class AlpacaClient:
         is_crypto = self._is_crypto_symbol(symbol)
         formatted_symbol = self._format_crypto_symbol(symbol) if is_crypto else self._format_stock_symbol(symbol)
         
+        # Round notional to 2 decimal places (Alpaca requirement)
+        notional_rounded = round(float(notional), 2)
+        if notional_rounded != notional:
+            logger.debug(f"Rounded notional from {notional} to {notional_rounded} (Alpaca requires 2 decimal places)")
+        
         return self.place_order(
             symbol=formatted_symbol,
             side='buy',
             order_type='market',
-            notional=notional
+            notional=notional_rounded
         )
     
     def place_market_sell(self, symbol: str, quantity: float) -> Dict:

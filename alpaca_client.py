@@ -452,15 +452,24 @@ class AlpacaClient:
         if is_crypto:
             # Crypto: use BTC/USD format (keep as-is if already formatted)
             clean_symbol = self._format_crypto_symbol(symbol)
+            # Crypto orders only support 'gtc' (Good Till Cancel) or 'ioc' (Immediate Or Cancel)
+            # Default to 'gtc' for crypto if 'day' is specified
+            if time_in_force.lower() == 'day':
+                crypto_time_in_force = 'gtc'
+            elif time_in_force.lower() in ['gtc', 'ioc']:
+                crypto_time_in_force = time_in_force.lower()
+            else:
+                crypto_time_in_force = 'gtc'  # Default for crypto
         else:
             # Stock: remove suffixes
             clean_symbol = self._format_stock_symbol(symbol)
+            crypto_time_in_force = None  # Not used for stocks
         
         order_data = {
             'symbol': clean_symbol,
             'side': side.lower(),
             'type': order_type.lower(),
-            'time_in_force': time_in_force.lower()
+            'time_in_force': crypto_time_in_force if is_crypto else time_in_force.lower()
         }
         
         if order_type.lower() == 'market':
